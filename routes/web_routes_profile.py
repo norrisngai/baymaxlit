@@ -34,10 +34,6 @@ def register(app: Flask) -> None:
         # Upcoming schedule (limit 3)
         upcoming_schedules = web_db.get_upcoming_schedule_items_for_profile(user_id, limit=3)
         
-        # Classmates (limit 4)
-        class_level = user.get("class_level") or ""
-        classmates = web_db.get_classmates(class_level, exclude_user_id=user_id, limit=4)
-
         subject_performance_rows = web_db.get_quiz_subject_performance(user_id=user_id)
         allowed_subjects = web_context.student_allowed_subjects(user)
         if allowed_subjects:
@@ -73,7 +69,6 @@ def register(app: Flask) -> None:
             study_hours=study_hours,
             study_progress_percent=study_progress_percent,
             upcoming_schedules=upcoming_schedules,
-            classmates=classmates,
             profile_subject_metrics=profile_subject_metrics,
             strongest_subject=strongest_subject,
             weakest_subject=weakest_subject,

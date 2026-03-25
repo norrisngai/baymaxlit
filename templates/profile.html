@@ -64,8 +64,8 @@
             <div class="dash-card-header">Study Time</div>
             <div class="dash-card-body" style="text-align: center;">
               <p class="muted">Today's study Target</p>
-              <div style="position: relative; width: 170px; height: 170px; margin: 20px auto;">
-                <svg width="170" height="170" viewBox="0 0 170 170" style="transform: rotate(-90deg);">
+              <div style="position: relative; width: 150px; height: 150px; margin: 12px auto;">
+                <svg width="150" height="150" viewBox="0 0 170 170" style="transform: rotate(-90deg);">
                   <circle cx="85" cy="85" r="70" fill="none" stroke="#625CCE" stroke-width="14" />
                   <circle cx="85" cy="85" r="70" fill="none" stroke="#89B5E5" stroke-width="14" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="{{ 439.8 - (439.8 * study_progress_percent / 100) }}" />
                 </svg>
@@ -73,23 +73,6 @@
                   <span style="font-size:13px;" class="muted">Total</span>
                   <strong style="color:var(--text); font-size:18px; margin-top: 4px;">{{ "%.1f"|format(study_hours) }} hr / 2 hr</strong>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-header">Classmates</div>
-            <div class="dash-card-body">
-              <p class="muted">Students in Class {{ user.class_level }}</p>
-              <div class="classmate-list">
-                {% for mate in classmates %}
-                  <div class="classmate-item">
-                    <img src="https://ui-avatars.com/api/?name={{ mate.name|urlencode }}&background=random" alt="{{ mate.name }}" />
-                    <div>{{ mate.name.split(' ')[0] if mate.name else 'N/A' }}</div>
-                  </div>
-                {% else %}
-                  <div class="placeholder-box" style="flex:1; padding:20px 0;">No classmates yet</div>
-                {% endfor %}
               </div>
             </div>
           </div>
