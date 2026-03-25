@@ -1,0 +1,84 @@
+/* ── Check Your Work page ───────────────────────────────────────────── */
+
+.cw-wrap { display: flex; flex-direction: column; height: calc(100vh - 53px); overflow-y: auto; padding: 24px; gap: 24px; }
+
+/* ── Setup card ────────────────────────────────────────────────────── */
+.cw-setup { display: flex; justify-content: center; align-items: flex-start; flex: 1; }
+.cw-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 32px; width: 100%; max-width: 560px; }
+.cw-title { margin: 0 0 4px; font-size: 22px; }
+.cw-form-group { margin-bottom: 18px; }
+.cw-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+/* Toggle row */
+.cw-toggle-row { display: flex; gap: 8px; }
+.cw-toggle-btn { flex: 1; padding: 10px 0; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.cw-toggle-btn:hover { border-color: #625CCE; }
+.cw-toggle-btn.active { background: #625CCE; border-color: #625CCE; color: #fff; }
+
+/* Topic input */
+.cw-input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text); font-size: 14px; outline: none; box-sizing: border-box; }
+.cw-input:focus { border-color: #625CCE; }
+.cw-input::placeholder { color: var(--muted); opacity: .7; }
+
+/* Upload zone */
+.cw-upload-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 32px 16px; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+.cw-upload-zone:hover, .cw-upload-zone.dragover { border-color: #625CCE; background: rgba(98,92,206,.06); }
+.cw-upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cw-upload-icon { font-size: 36px; color: var(--muted); margin-bottom: 8px; }
+.cw-upload-text { font-size: 14px; color: var(--muted); }
+.cw-upload-text strong { color: var(--text); }
+.cw-file-name { margin-top: 8px; font-size: 13px; color: #625CCE; font-weight: 600; word-break: break-all; }
+
+/* Preview thumbnail */
+.cw-preview { margin-top: 12px; text-align: center; }
+.cw-preview img { max-width: 100%; max-height: 200px; border-radius: 10px; border: 1px solid var(--border); }
+
+/* Submit */
+.cw-submit-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: #625CCE; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity .15s; margin-top: 8px; }
+.cw-submit-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cw-submit-btn:hover:not(:disabled) { opacity: .88; }
+.cw-spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: cw-spin .6s linear infinite; display: inline-block; }
+@keyframes cw-spin { to { transform: rotate(360deg); } }
+
+/* ── Results ───────────────────────────────────────────────────────── */
+.cw-results { max-width: 960px; width: 100%; margin: 0 auto; }
+.cw-results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.cw-results-header h2 { margin: 0; font-size: 20px; }
+.cw-back-btn { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.cw-back-btn:hover { border-color: #625CCE; }
+
+/* Annotated image */
+/* Transcription panel */
+.cw-transcription { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 24px; }
+.cw-transcription h3 { margin: 0 0 12px; font-size: 16px; }
+.cw-transcription pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 14px; line-height: 1.7; color: var(--text); margin: 0; background: rgba(255,255,255,.03); border-radius: 8px; padding: 16px; border: 1px solid var(--border); max-height: 400px; overflow-y: auto; }
+
+.cw-annotated-wrap { margin-bottom: 24px; text-align: center; }
+.cw-annotated-wrap img { max-width: 100%; border-radius: 12px; border: 1px solid var(--border); }
+
+/* Feedback cards */
+.cw-feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+@media (max-width: 640px) { .cw-feedback-grid { grid-template-columns: 1fr; } }
+
+.cw-feedback-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.cw-feedback-card h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+.cw-feedback-card ul { margin: 0; padding-left: 18px; }
+.cw-feedback-card li { font-size: 13px; margin-bottom: 6px; line-height: 1.5; }
+
+.cw-overall { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 24px; }
+.cw-overall h3 { margin: 0 0 8px; font-size: 15px; }
+.cw-overall p { margin: 0; font-size: 14px; line-height: 1.6; }
+
+/* Annotation detail list */
+.cw-annotations-list { margin-bottom: 24px; }
+.cw-ann-item { display: flex; gap: 10px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; background: rgba(255,255,255,.02); align-items: flex-start; }
+.cw-ann-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+.cw-ann-badge.mistake { background: rgba(220,38,38,.15); color: #ef4444; }
+.cw-ann-badge.highlight { background: rgba(250,204,21,.15); color: #ca8a04; }
+.cw-ann-badge.good { background: rgba(34,197,94,.15); color: #22c55e; }
+.cw-ann-detail { flex: 1; min-width: 0; }
+.cw-ann-label { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.cw-ann-comment { font-size: 13px; color: var(--muted); line-height: 1.4; }
+.cw-ann-correction { font-size: 13px; margin-top: 4px; }
+.cw-ann-correction .wrong { text-decoration: line-through; color: #ef4444; }
+.cw-ann-correction .right { color: #22c55e; font-weight: 600; }

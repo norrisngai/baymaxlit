@@ -1,0 +1,2468 @@
+"""web_db.py
+
+SQLite database layer for the web app.
+
+Design rules:
+- DB logic only (NO AI calls).
+- Separate from Telegram-specific memory/homework DBs.
+
+Database: webapp.db
+Tables:
+- users: login + role (student/teacher) + profile fields
+- chats: chat threads per user
+- messages: chat messages per chat
+ - assignments: teacher-entered deadlines/tasks per class
+ - schedule_items: AI-planned study schedule items for a student
+ - google_tokens: per-user OAuth token bundle for Google APIs
+ - schedule_google_events: mapping between schedule_items and Google Calendar events
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from datetime import date, datetime, timedelta
+from typing import Any, Optional
+
+DB_PATH = os.environ.get("WEB_DB_PATH", "webapp.db")
+
+# Study timer award settings.
+# For production, set STUDY_TIMER_CHUNK_SECONDS=1800 (30 minutes).
+STUDY_TIMER_CHUNK_SECONDS = int(os.environ.get("STUDY_TIMER_CHUNK_SECONDS", "10"))
+STUDY_TIMER_COINS_PER_CHUNK = int(os.environ.get("STUDY_TIMER_COINS_PER_CHUNK", "10"))
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                name TEXT,
+                class_level TEXT,
+                electives_json TEXT NOT NULL DEFAULT '[]',
+                interests_json TEXT NOT NULL DEFAULT '[]',
+                coins INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                chat_type TEXT NOT NULL DEFAULT 'chat',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_user_id INTEGER NOT NULL,
+                item_type TEXT NOT NULL,
+                target_class TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                description TEXT NOT NULL,
+                scope TEXT,
+                deadline TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(teacher_user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS schedule_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                task_type TEXT NOT NULL,
+                task_id INTEGER,
+                date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS google_tokens (
+                user_id INTEGER PRIMARY KEY,
+                token_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS schedule_google_events (
+                schedule_item_id INTEGER PRIMARY KEY,
+                calendar_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(schedule_item_id) REFERENCES schedule_items(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                assignment_id INTEGER NOT NULL,
+                notification_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(assignment_id) REFERENCES assignments(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS user_availability (
+                user_id INTEGER PRIMARY KEY,
+                weekday_windows TEXT NOT NULL,
+                weekend_windows TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS revision_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                schedule_item_id INTEGER NOT NULL,
+                assignment_id INTEGER,
+                subject TEXT NOT NULL,
+                scope TEXT,
+                duration_minutes INTEGER,
+                session_count INTEGER NOT NULL DEFAULT 1,
+                session_index INTEGER NOT NULL DEFAULT 1,
+                topics_json TEXT NOT NULL DEFAULT '[]',
+                all_topics_json TEXT NOT NULL DEFAULT '[]',
+                study_guide_md TEXT,
+                chat_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, schedule_item_id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(schedule_item_id) REFERENCES schedule_items(id),
+                FOREIGN KEY(chat_id) REFERENCES chats(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS coin_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                meta_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_study_stats (
+                user_id INTEGER NOT NULL,
+                study_date TEXT NOT NULL,
+                seconds INTEGER NOT NULL DEFAULT 0,
+                reached_2h_bonus INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, study_date),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS study_timers (
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                schedule_item_id INTEGER,
+                is_running INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT,
+                accumulated_seconds INTEGER NOT NULL DEFAULT 0,
+                chunks_awarded INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(user_id, chat_id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(chat_id) REFERENCES chats(id),
+                FOREIGN KEY(schedule_item_id) REFERENCES schedule_items(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+            CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
+            CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
+            CREATE INDEX IF NOT EXISTS idx_assignments_class_deadline ON assignments(target_class, deadline);
+            CREATE INDEX IF NOT EXISTS idx_assignments_type ON assignments(item_type);
+            CREATE INDEX IF NOT EXISTS idx_schedule_user_date ON schedule_items(user_id, date);
+            CREATE INDEX IF NOT EXISTS idx_schedule_events_calendar ON schedule_google_events(calendar_id);
+            CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+            CREATE INDEX IF NOT EXISTS idx_notifications_assignment ON notifications(assignment_id, notification_type);
+            CREATE INDEX IF NOT EXISTS idx_revision_sessions_user ON revision_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_revision_sessions_schedule_item ON revision_sessions(schedule_item_id);
+            CREATE INDEX IF NOT EXISTS idx_coin_ledger_user ON coin_ledger(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS quiz_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                subject TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                questions_json TEXT NOT NULL,
+                answers_json TEXT,
+                score INTEGER,
+                total INTEGER,
+                coins_awarded INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_quiz_attempts_user ON quiz_attempts(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                activity_type TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                venue TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(teacher_user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_activities_teacher ON activities(teacher_user_id);
+            CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(date);
+
+            CREATE TABLE IF NOT EXISTS activity_enrollments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                activity_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                enrolled_at TEXT NOT NULL,
+                UNIQUE(activity_id, user_id),
+                FOREIGN KEY(activity_id) REFERENCES activities(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_enrollments_activity ON activity_enrollments(activity_id);
+            CREATE INDEX IF NOT EXISTS idx_enrollments_user ON activity_enrollments(user_id);
+
+            CREATE TABLE IF NOT EXISTS notebooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(user_id);
+
+            CREATE TABLE IF NOT EXISTS notebook_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notebook_id INTEGER NOT NULL,
+                source_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                meta_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(notebook_id) REFERENCES notebooks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notebook_sources_notebook ON notebook_sources(notebook_id);
+
+            CREATE TABLE IF NOT EXISTS notebook_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notebook_id INTEGER NOT NULL,
+                title TEXT NOT NULL DEFAULT 'Untitled note',
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(notebook_id) REFERENCES notebooks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notebook_notes_notebook ON notebook_notes(notebook_id);
+
+            CREATE TABLE IF NOT EXISTS notebook_outputs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notebook_id INTEGER NOT NULL,
+                output_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(notebook_id) REFERENCES notebooks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notebook_outputs_notebook ON notebook_outputs(notebook_id);
+            """
+        )
+
+        # Lightweight migrations for existing DB files.
+        try:
+            cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
+        except Exception:
+            cols = []
+        if "electives_json" not in cols:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN electives_json TEXT NOT NULL DEFAULT '[]'")
+            except Exception:
+                pass
+
+        if "coins" not in cols:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+
+        # Migrate schedule_items CHECK constraint to allow 'activity' task_type.
+        try:
+            schema_row = cur.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='schedule_items'"
+            ).fetchone()
+            schema_sql = schema_row[0] if schema_row else ""
+            if "schedule_items" in schema_sql and "'activity'" not in schema_sql:
+                cur.executescript("""
+                    CREATE TABLE IF NOT EXISTS schedule_items_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        task_type TEXT NOT NULL CHECK(task_type IN ('homework','quiz','test','exam','study','activity')),
+                        task_id INTEGER,
+                        date TEXT NOT NULL,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        origin TEXT NOT NULL DEFAULT 'user',
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    );
+                    INSERT INTO schedule_items_new SELECT * FROM schedule_items;
+                    DROP TABLE schedule_items;
+                    ALTER TABLE schedule_items_new RENAME TO schedule_items;
+                    CREATE INDEX IF NOT EXISTS idx_schedule_user_date ON schedule_items(user_id, date);
+                """)
+        except Exception:
+            pass
+
+        conn.commit()
+
+
+def _parse_iso_dt(v: Optional[str]) -> Optional[datetime]:
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(str(v))
+    except Exception:
+        return None
+
+
+def get_user_coins(*, user_id: int) -> int:
+    user = get_user(int(user_id))
+    if not user:
+        return 0
+    try:
+        return int(user.get("coins") or 0)
+    except Exception:
+        return 0
+
+
+def add_user_coins(*, user_id: int, delta: int, reason: str, meta: Optional[dict[str, Any]] = None) -> int:
+    """Adjust a user's coin balance and record a ledger entry.
+
+    Returns the new balance.
+    """
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?",
+            (int(delta), int(user_id)),
+        )
+        meta_json = None
+        if meta is not None:
+            try:
+                meta_json = json.dumps(meta, ensure_ascii=False)
+            except Exception:
+                meta_json = None
+        cur.execute(
+            "INSERT INTO coin_ledger (user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (int(user_id), int(delta), str(reason or ""), meta_json, now),
+        )
+        cur.execute("SELECT coins FROM users WHERE id = ?", (int(user_id),))
+        row = cur.fetchone()
+        conn.commit()
+        try:
+            return int((row[0] if row else 0) or 0)
+        except Exception:
+            return 0
+
+
+def _study_timer_award_if_needed(
+    *,
+    cur: sqlite3.Cursor,
+    user_id: int,
+    chat_id: int,
+    schedule_item_id: Optional[int],
+    now_dt: datetime,
+) -> tuple[int, int, int, bool]:
+    """Returns (elapsed_seconds, chunks_awarded_total, coins_awarded_now, is_running)."""
+
+    cur.execute(
+        "SELECT is_running, started_at, accumulated_seconds, chunks_awarded FROM study_timers WHERE user_id = ? AND chat_id = ?",
+        (int(user_id), int(chat_id)),
+    )
+    row = cur.fetchone()
+    if not row:
+        now = now_dt.isoformat(timespec="seconds")
+        cur.execute(
+            """
+            INSERT INTO study_timers (user_id, chat_id, schedule_item_id, is_running, started_at, accumulated_seconds, chunks_awarded, created_at, updated_at)
+            VALUES (?, ?, ?, 0, NULL, 0, 0, ?, ?)
+            """,
+            (int(user_id), int(chat_id), int(schedule_item_id) if schedule_item_id is not None else None, now, now),
+        )
+        return (0, 0, 0, False)
+
+    is_running = bool(int(row[0] or 0))
+    started_at = _parse_iso_dt(row[1])
+    try:
+        accumulated = int(row[2] or 0)
+    except Exception:
+        accumulated = 0
+    try:
+        chunks_awarded = int(row[3] or 0)
+    except Exception:
+        chunks_awarded = 0
+
+    extra = 0
+    if is_running and started_at:
+        extra = max(0, int((now_dt - started_at).total_seconds()))
+    elapsed_seconds = max(0, accumulated + extra)
+
+    if extra > 0:
+        now_iso = now_dt.isoformat(timespec="seconds")
+        today_str = now_dt.strftime("%Y-%m-%d")
+        
+        # 1. Update accumulated & started_at in study_timers
+        cur.execute(
+            """
+            UPDATE study_timers
+            SET accumulated_seconds = ?, started_at = ?, updated_at = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (elapsed_seconds, now_iso, now_iso, int(user_id), int(chat_id))
+        )
+        
+        # 2. Update daily_study_stats
+        cur.execute(
+            """
+            INSERT INTO daily_study_stats (user_id, study_date, seconds, reached_2h_bonus)
+            VALUES (?, ?, ?, 0)
+            ON CONFLICT(user_id, study_date) DO UPDATE SET
+            seconds = seconds + excluded.seconds
+            """,
+            (int(user_id), today_str, extra)
+        )
+        
+        # 3. Check for 2hr daily bonus
+        cur.execute(
+            "SELECT seconds, reached_2h_bonus FROM daily_study_stats WHERE user_id = ? AND study_date = ?",
+            (int(user_id), today_str)
+        )
+        dailystat = cur.fetchone()
+        if dailystat and dailystat[0] >= 7200 and dailystat[1] == 0:
+            cur.execute("UPDATE daily_study_stats SET reached_2h_bonus = 1 WHERE user_id = ? AND study_date = ?", (int(user_id), today_str))
+            cur.execute("UPDATE users SET coins = COALESCE(coins, 0) + 50 WHERE id = ?", (int(user_id),))
+            cur.execute(
+                "INSERT INTO coin_ledger (user_id, delta, reason, meta_json, created_at) VALUES (?, 50, ?, ?, ?)",
+                (int(user_id), "daily_2h_bonus", "{}", now_iso)
+            )
+
+    chunk_seconds = int(STUDY_TIMER_CHUNK_SECONDS) if int(STUDY_TIMER_CHUNK_SECONDS) > 0 else 1800
+    coins_per_chunk = int(STUDY_TIMER_COINS_PER_CHUNK) if int(STUDY_TIMER_COINS_PER_CHUNK) > 0 else 10
+
+    total_chunks = elapsed_seconds // chunk_seconds
+    new_chunks = max(0, int(total_chunks - chunks_awarded))
+    coins_awarded_now = new_chunks * coins_per_chunk
+    if coins_awarded_now > 0:
+        now_iso = now_dt.isoformat(timespec="seconds")
+        # Update balance + ledger.
+        cur.execute(
+            "UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?",
+            (int(coins_awarded_now), int(user_id)),
+        )
+        meta_json = None
+        try:
+            meta_json = json.dumps(
+                {
+                    "chat_id": int(chat_id),
+                    "schedule_item_id": int(schedule_item_id) if schedule_item_id is not None else None,
+                    "chunks": int(new_chunks),
+                },
+                ensure_ascii=False,
+            )
+        except Exception:
+            meta_json = None
+        cur.execute(
+            "INSERT INTO coin_ledger (user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (int(user_id), int(coins_awarded_now), "study_timer", meta_json, now_iso),
+        )
+        cur.execute(
+            """
+            UPDATE study_timers
+            SET chunks_awarded = ?, updated_at = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (int(chunks_awarded + new_chunks), now_iso, int(user_id), int(chat_id)),
+        )
+        chunks_awarded = chunks_awarded + new_chunks
+
+    return (int(elapsed_seconds), int(chunks_awarded), int(coins_awarded_now), bool(is_running))
+
+
+def get_study_timer_status(*, user_id: int, chat_id: int, schedule_item_id: Optional[int]) -> dict[str, Any]:
+    """Return timer status and award any newly-earned chunks."""
+    init_db()
+    now_dt = datetime.utcnow()
+    now_iso = now_dt.isoformat(timespec="seconds")
+    with _connect() as conn:
+        cur = conn.cursor()
+        elapsed_seconds, chunks_awarded, coins_awarded_now, is_running = _study_timer_award_if_needed(
+            cur=cur,
+            user_id=int(user_id),
+            chat_id=int(chat_id),
+            schedule_item_id=(int(schedule_item_id) if schedule_item_id is not None else None),
+            now_dt=now_dt,
+        )
+
+        cur.execute("SELECT coins FROM users WHERE id = ?", (int(user_id),))
+        row = cur.fetchone()
+        try:
+            coins = int((row[0] if row else 0) or 0)
+        except Exception:
+            coins = 0
+
+        # Keep schedule_item_id synced.
+        cur.execute(
+            "UPDATE study_timers SET schedule_item_id = COALESCE(?, schedule_item_id), updated_at = ? WHERE user_id = ? AND chat_id = ?",
+            (
+                int(schedule_item_id) if schedule_item_id is not None else None,
+                now_iso,
+                int(user_id),
+                int(chat_id),
+            ),
+        )
+        conn.commit()
+
+    return {
+        "is_running": bool(is_running),
+        "elapsed_seconds": int(elapsed_seconds),
+        "chunks_awarded": int(chunks_awarded),
+        "coins": int(coins),
+        "coins_awarded_now": int(coins_awarded_now),
+    }
+
+
+def start_study_timer(*, user_id: int, chat_id: int, schedule_item_id: Optional[int]) -> dict[str, Any]:
+    init_db()
+    now_dt = datetime.utcnow()
+    now_iso = now_dt.isoformat(timespec="seconds")
+    with _connect() as conn:
+        cur = conn.cursor()
+        # Ensure row exists and award any pending before toggling state.
+        _study_timer_award_if_needed(
+            cur=cur,
+            user_id=int(user_id),
+            chat_id=int(chat_id),
+            schedule_item_id=(int(schedule_item_id) if schedule_item_id is not None else None),
+            now_dt=now_dt,
+        )
+        cur.execute(
+            "SELECT is_running FROM study_timers WHERE user_id = ? AND chat_id = ?",
+            (int(user_id), int(chat_id)),
+        )
+        row = cur.fetchone()
+        is_running = bool(int(row[0] or 0)) if row else False
+        if not is_running:
+            cur.execute(
+                """
+                UPDATE study_timers
+                SET is_running = 1, started_at = ?, schedule_item_id = COALESCE(?, schedule_item_id), updated_at = ?
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (
+                    now_iso,
+                    int(schedule_item_id) if schedule_item_id is not None else None,
+                    now_iso,
+                    int(user_id),
+                    int(chat_id),
+                ),
+            )
+        conn.commit()
+    return get_study_timer_status(user_id=int(user_id), chat_id=int(chat_id), schedule_item_id=schedule_item_id)
+
+
+def pause_study_timer(*, user_id: int, chat_id: int, schedule_item_id: Optional[int]) -> dict[str, Any]:
+    init_db()
+    now_dt = datetime.utcnow()
+    now_iso = now_dt.isoformat(timespec="seconds")
+    with _connect() as conn:
+        cur = conn.cursor()
+        # Award any pending chunks first.
+        _study_timer_award_if_needed(
+            cur=cur,
+            user_id=int(user_id),
+            chat_id=int(chat_id),
+            schedule_item_id=(int(schedule_item_id) if schedule_item_id is not None else None),
+            now_dt=now_dt,
+        )
+        cur.execute(
+            "SELECT is_running, started_at, accumulated_seconds FROM study_timers WHERE user_id = ? AND chat_id = ?",
+            (int(user_id), int(chat_id)),
+        )
+        row = cur.fetchone()
+        if row:
+            is_running = bool(int(row[0] or 0))
+            started_at = _parse_iso_dt(row[1])
+            try:
+                accumulated = int(row[2] or 0)
+            except Exception:
+                accumulated = 0
+            if is_running and started_at:
+                accumulated = max(0, accumulated + int((now_dt - started_at).total_seconds()))
+            cur.execute(
+                """
+                UPDATE study_timers
+                SET is_running = 0, started_at = NULL, accumulated_seconds = ?, schedule_item_id = COALESCE(?, schedule_item_id), updated_at = ?
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (
+                    int(accumulated),
+                    int(schedule_item_id) if schedule_item_id is not None else None,
+                    now_iso,
+                    int(user_id),
+                    int(chat_id),
+                ),
+            )
+        conn.commit()
+    return get_study_timer_status(user_id=int(user_id), chat_id=int(chat_id), schedule_item_id=schedule_item_id)
+
+
+def get_revision_session_for_user(*, user_id: int, schedule_item_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM revision_sessions WHERE user_id = ? AND schedule_item_id = ?",
+            (int(user_id), int(schedule_item_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["topics"] = json.loads(data.get("topics_json") or "[]")
+        except Exception:
+            data["topics"] = []
+        try:
+            data["all_topics"] = json.loads(data.get("all_topics_json") or "[]")
+        except Exception:
+            data["all_topics"] = []
+        return data
+
+
+def upsert_revision_session(
+    *,
+    user_id: int,
+    schedule_item_id: int,
+    assignment_id: Optional[int],
+    subject: str,
+    scope: Optional[str],
+    duration_minutes: Optional[int],
+    session_count: int,
+    session_index: int,
+    topics: list[str],
+    all_topics: list[str],
+    study_guide_md: Optional[str],
+    chat_id: Optional[int],
+) -> None:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO revision_sessions (
+                user_id, schedule_item_id, assignment_id, subject, scope, duration_minutes,
+                session_count, session_index, topics_json, all_topics_json, study_guide_md, chat_id,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, schedule_item_id) DO UPDATE SET
+                assignment_id = excluded.assignment_id,
+                subject = excluded.subject,
+                scope = excluded.scope,
+                duration_minutes = excluded.duration_minutes,
+                session_count = excluded.session_count,
+                session_index = excluded.session_index,
+                topics_json = excluded.topics_json,
+                all_topics_json = excluded.all_topics_json,
+                study_guide_md = excluded.study_guide_md,
+                chat_id = COALESCE(excluded.chat_id, revision_sessions.chat_id),
+                updated_at = excluded.updated_at
+            """,
+            (
+                int(user_id),
+                int(schedule_item_id),
+                (int(assignment_id) if assignment_id is not None else None),
+                (subject or "").strip() or "General",
+                (scope.strip() if isinstance(scope, str) and scope.strip() else None),
+                (int(duration_minutes) if duration_minutes is not None else None),
+                int(max(1, session_count)),
+                int(max(1, session_index)),
+                json.dumps(list(topics or []), ensure_ascii=False),
+                json.dumps(list(all_topics or []), ensure_ascii=False),
+                (study_guide_md if isinstance(study_guide_md, str) else None),
+                (int(chat_id) if chat_id is not None else None),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def unlink_revision_sessions_for_deleted_chat(*, user_id: int, chat_id: int) -> int:
+    """Clear chat_id in revision_sessions rows pointing to a deleted chat.
+
+    Returns number of rows updated.
+    """
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE revision_sessions
+            SET chat_id = NULL, updated_at = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (now, int(user_id), int(chat_id)),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def get_revision_sessions_for_user_by_schedule_ids(
+    *, user_id: int, schedule_item_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Fetch revision_sessions rows for a user keyed by schedule_item_id."""
+    init_db()
+    ids = [int(x) for x in (schedule_item_ids or []) if int(x) > 0]
+    if not ids:
+        return {}
+    marks = ",".join(["?"] * len(ids))
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT * FROM revision_sessions WHERE user_id = ? AND schedule_item_id IN ({marks})",
+            tuple([int(user_id)] + ids),
+        )
+        out: dict[int, dict[str, Any]] = {}
+        for r in cur.fetchall():
+            row = dict(r)
+            try:
+                row["topics"] = json.loads(row.get("topics_json") or "[]")
+            except Exception:
+                row["topics"] = []
+            try:
+                row["all_topics"] = json.loads(row.get("all_topics_json") or "[]")
+            except Exception:
+                row["all_topics"] = []
+            try:
+                sid = int(row.get("schedule_item_id") or 0)
+            except Exception:
+                sid = 0
+            if sid > 0:
+                out[sid] = row
+        return out
+
+
+def get_revision_session_for_user_by_chat_id(*, user_id: int, chat_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM revision_sessions WHERE user_id = ? AND chat_id = ?",
+            (int(user_id), int(chat_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["topics"] = json.loads(data.get("topics_json") or "[]")
+        except Exception:
+            data["topics"] = []
+        try:
+            data["all_topics"] = json.loads(data.get("all_topics_json") or "[]")
+        except Exception:
+            data["all_topics"] = []
+        return data
+
+
+def _normalize_task_type(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v in {"homework", "hw"}:
+        return "homework"
+    if v in {"quiz", "quizz"}:
+        return "quiz"
+    if v == "test":
+        return "test"
+    if v in {"exam", "exams"}:
+        return "exam"
+    if v == "activity":
+        return "activity"
+    return "study"
+
+
+def _normalize_item_type(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v in {"homework", "hw"}:
+        return "homework"
+    if v in {"quiz", "quizz"}:
+        return "quiz"
+    if v == "test":
+        return "test"
+    if v in {"exam", "exams"}:
+        return "exam"
+    return "homework"
+
+
+def _normalize_class_code(value: Optional[str]) -> str:
+    v = "".join((value or "").split()).upper()
+    return v
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat(timespec="seconds")
+
+
+def create_user(
+    *,
+    email: str,
+    password_hash: str,
+    role: str,
+    name: Optional[str],
+    class_level: Optional[str],
+    electives: Optional[list[str]] = None,
+    interests: list[str],
+) -> int:
+    init_db()
+    class_level = _normalize_class_code(class_level) if class_level is not None else None
+    electives = list(electives or [])
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (email, password_hash, role, name, class_level, electives_json, interests_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                email.strip().lower(),
+                password_hash,
+                role,
+                name,
+                class_level,
+                json.dumps(electives, ensure_ascii=False),
+                json.dumps(interests, ensure_ascii=False),
+                _now_iso(),
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def set_user_electives(*, user_id: int, electives: list[str]) -> None:
+    init_db()
+    electives_json = json.dumps(list(electives or []), ensure_ascii=False)
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET electives_json = ? WHERE id = ?",
+            (electives_json, int(user_id)),
+        )
+        conn.commit()
+
+
+def get_user_by_email(email: str) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_user(user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE id = ?", (int(user_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_students() -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, email, role, name, class_level, interests_json, created_at
+            FROM users
+            WHERE role = 'student'
+            ORDER BY created_at DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_chat(*, user_id: int, title: str, chat_type: str = "chat") -> int:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO chats (user_id, title, chat_type, created_at) VALUES (?, ?, ?, ?)",
+            (int(user_id), title, chat_type, _now_iso()),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_chats(*, user_id: int, chat_type: Optional[str] = None) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        if chat_type:
+            cur.execute(
+                "SELECT id, user_id, title, chat_type, created_at FROM chats WHERE user_id = ? AND chat_type = ? ORDER BY id DESC",
+                (int(user_id), chat_type),
+            )
+        else:
+            cur.execute(
+                "SELECT id, user_id, title, chat_type, created_at FROM chats WHERE user_id = ? ORDER BY id DESC",
+                (int(user_id),),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_chat(*, chat_id: int, user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, user_id, title, chat_type, created_at FROM chats WHERE id = ? AND user_id = ?",
+            (int(chat_id), int(user_id)),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_chat(*, chat_id: int, user_id: int) -> bool:
+    """Delete a chat and all its messages. Returns True if deleted, False if not found."""
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        # First verify ownership
+        cur.execute("SELECT id FROM chats WHERE id = ? AND user_id = ?", (int(chat_id), int(user_id)))
+        if not cur.fetchone():
+            return False
+        # Delete messages first
+        cur.execute("DELETE FROM messages WHERE chat_id = ?", (int(chat_id),))
+        # Delete chat
+        cur.execute("DELETE FROM chats WHERE id = ?", (int(chat_id),))
+        conn.commit()
+        return True
+
+
+def add_message(*, chat_id: int, role: str, content: str) -> int:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            (int(chat_id), role, content, _now_iso()),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_messages(*, chat_id: int, limit: int = 200) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, chat_id, role, content, created_at
+            FROM messages
+            WHERE chat_id = ?
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (int(chat_id), int(limit)),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def add_assignment(
+    *,
+    teacher_user_id: int,
+    item_type: str,
+    target_class: str,
+    subject: str,
+    description: str,
+    deadline: str,
+    scope: Optional[str] = None,
+) -> int:
+    init_db()
+    item_type = _normalize_item_type(item_type)
+    target_class = _normalize_class_code(target_class)
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO assignments (
+                teacher_user_id, item_type, target_class, subject, description, scope, deadline, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(teacher_user_id),
+                item_type,
+                target_class,
+                subject.strip(),
+                description.strip(),
+                (scope.strip() if isinstance(scope, str) and scope.strip() else None),
+                deadline.strip(),
+                _now_iso(),
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def clear_schedule_from(*, user_id: int, from_date: str) -> int:
+    """Delete schedule items for user on/after from_date (YYYY-MM-DD). Preserves activity items."""
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM schedule_items WHERE user_id = ? AND date >= ? AND task_type != 'activity'",
+            (int(user_id), from_date),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def clear_ai_schedule_items(*, user_id: int) -> int:
+    """Delete all schedule items for a user that were AI-generated via the timetable generator.
+
+    Current convention:
+    - Manual items created from the UI use reason == 'Planned by student'.
+    - Items created via the schedule chat use reason == 'Planned via chat'.
+    - Activity items use task_type == 'activity'.
+    - Everything else is treated as AI-generated timetable output.
+    """
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        # Remove Google event mappings first to avoid orphan rows.
+        cur.execute(
+            """
+            DELETE FROM schedule_google_events
+            WHERE schedule_item_id IN (
+                SELECT id FROM schedule_items
+                WHERE user_id = ? AND reason NOT IN (?, ?) AND task_type != 'activity'
+            )
+            """,
+            (int(user_id), "Planned by student", "Planned via chat"),
+        )
+        cur.execute(
+            "DELETE FROM schedule_items WHERE user_id = ? AND reason NOT IN (?, ?) AND task_type != 'activity'",
+            (int(user_id), "Planned by student", "Planned via chat"),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def add_schedule_items(*, user_id: int, items: list[dict[str, Any]]) -> int:
+    """Insert schedule items for a user. Expects keys: date,start_time,end_time,subject,task_type,task_id,reason."""
+    init_db()
+    if not items:
+        return 0
+
+    inserted = 0
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        for it in items:
+            cur.execute(
+                """
+                INSERT INTO schedule_items (user_id, task_type, task_id, date, start_time, end_time, subject, reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(user_id),
+                    _normalize_task_type(str(it.get("task_type") or "study")),
+                    it.get("task_id"),
+                    str(it.get("date") or ""),
+                    str(it.get("start_time") or ""),
+                    str(it.get("end_time") or ""),
+                    str(it.get("subject") or ""),
+                    str(it.get("reason") or ""),
+                    now,
+                ),
+            )
+            try:
+                it["id"] = int(cur.lastrowid)
+            except Exception:
+                pass
+            inserted += 1
+        conn.commit()
+    return int(inserted)
+
+
+def add_schedule_item(
+    *,
+    user_id: int,
+    date: str,
+    start_time: str,
+    end_time: str,
+    subject: str,
+    task_type: str,
+    task_id: Optional[int],
+    reason: str,
+) -> int:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO schedule_items (user_id, task_type, task_id, date, start_time, end_time, subject, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(user_id),
+                _normalize_task_type(task_type),
+                task_id,
+                date,
+                start_time,
+                end_time,
+                subject,
+                reason,
+                _now_iso(),
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def update_schedule_item(*, user_id: int, schedule_item_id: int, patch: dict[str, Any]) -> bool:
+    """Update a schedule item for a user. Returns True if updated."""
+    init_db()
+    allowed = {
+        "date",
+        "start_time",
+        "end_time",
+        "subject",
+        "task_type",
+        "task_id",
+        "reason",
+    }
+    fields = {k: v for k, v in (patch or {}).items() if k in allowed}
+    if not fields:
+        return False
+
+    if "task_type" in fields:
+        fields["task_type"] = _normalize_task_type(str(fields["task_type"]))
+
+    sets = ", ".join([f"{k} = ?" for k in fields.keys()])
+    params = list(fields.values()) + [int(schedule_item_id), int(user_id)]
+
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE schedule_items SET {sets} WHERE id = ? AND user_id = ?",
+            tuple(params),
+        )
+        conn.commit()
+        return (cur.rowcount or 0) > 0
+
+
+def get_user_availability(*, user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM user_availability WHERE user_id = ?", (int(user_id),))
+        row = cur.fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["weekday_windows"] = json.loads(data.get("weekday_windows") or "[]")
+        except Exception:
+            data["weekday_windows"] = []
+        try:
+            data["weekend_windows"] = json.loads(data.get("weekend_windows") or "[]")
+        except Exception:
+            data["weekend_windows"] = []
+        return data
+
+
+def set_user_availability(*, user_id: int, weekday_windows: list[str], weekend_windows: list[str]):
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO user_availability (user_id, weekday_windows, weekend_windows)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                weekday_windows = excluded.weekday_windows,
+                weekend_windows = excluded.weekend_windows
+            """,
+            (
+                int(user_id),
+                json.dumps(weekday_windows, ensure_ascii=False),
+                json.dumps(weekend_windows, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+
+
+def get_schedule_item_for_user(*, user_id: int, schedule_item_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM schedule_items WHERE id = ? AND user_id = ?",
+            (int(schedule_item_id), int(user_id)),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_schedule_item(*, user_id: int, schedule_item_id: int) -> bool:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM schedule_items WHERE id = ? AND user_id = ?",
+            (int(schedule_item_id), int(user_id)),
+        )
+        conn.commit()
+        return (cur.rowcount or 0) > 0
+
+
+def list_schedule_items(
+    *,
+    user_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    init_db()
+    sql = "SELECT * FROM schedule_items WHERE user_id = ?"
+    params: list[Any] = [int(user_id)]
+
+    if start_date:
+        sql += " AND date >= ?"
+        params.append(start_date)
+    if end_date:
+        sql += " AND date <= ?"
+        params.append(end_date)
+
+    sql += " ORDER BY date ASC, start_time ASC, id ASC LIMIT ?"
+    params.append(int(limit))
+
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, tuple(params))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_google_token(*, user_id: int, token_json: str) -> None:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO google_tokens (user_id, token_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                token_json = excluded.token_json,
+                updated_at = excluded.updated_at
+            """,
+            (int(user_id), token_json, now, now),
+        )
+        conn.commit()
+
+
+def get_google_token(*, user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM google_tokens WHERE user_id = ?", (int(user_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_google_token(*, user_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM google_tokens WHERE user_id = ?", (int(user_id),))
+        conn.commit()
+
+
+def get_schedule_google_event(*, schedule_item_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM schedule_google_events WHERE schedule_item_id = ?",
+            (int(schedule_item_id),),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def upsert_schedule_google_event(*, schedule_item_id: int, calendar_id: str, event_id: str) -> None:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO schedule_google_events (schedule_item_id, calendar_id, event_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(schedule_item_id) DO UPDATE SET
+                calendar_id = excluded.calendar_id,
+                event_id = excluded.event_id,
+                updated_at = excluded.updated_at
+            """,
+            (int(schedule_item_id), calendar_id, event_id, now, now),
+        )
+        conn.commit()
+
+
+def list_assignments(limit: int = 200) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, teacher_user_id, item_type, target_class, subject, description, scope, deadline, created_at
+            FROM assignments
+            ORDER BY deadline ASC, id DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_assignment(*, assignment_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, teacher_user_id, item_type, target_class, subject, description, scope, deadline, created_at
+            FROM assignments
+            WHERE id = ?
+            """,
+            (int(assignment_id),),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_assignment(*, assignment_id: int, teacher_user_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM assignments WHERE id = ? AND teacher_user_id = ?",
+            (int(assignment_id), int(teacher_user_id)),
+        )
+        conn.commit()
+
+
+def prune_expired_assignments(*, days_past: int = 7, now_utc: Optional[date] = None) -> list[int]:
+    """Delete assignments whose deadline is at least `days_past` days in the past.
+
+    Also deletes dependent rows that reference the assignment:
+    - notifications (by assignment_id)
+    - schedule_items (where task_id == assignment_id and task_type is an assessment)
+      and any schedule_google_events for those schedule items.
+
+    Returns the list of deleted assignment ids.
+    """
+
+    init_db()
+
+    if days_past < 0:
+        days_past = 0
+
+    today = now_utc or datetime.utcnow().date()
+    cutoff = today - timedelta(days=int(days_past))
+
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, deadline FROM assignments")
+        rows = cur.fetchall()
+
+        expired_ids: list[int] = []
+        for r in rows:
+            try:
+                raw = str(r["deadline"] or "").strip()
+                if not raw:
+                    continue
+                # Accept 'YYYY-MM-DD' and full ISO timestamps.
+                d = datetime.fromisoformat(raw).date()
+            except Exception:
+                # Fallback: best-effort parse leading YYYY-MM-DD.
+                try:
+                    d = date.fromisoformat(raw[:10])
+                except Exception:
+                    continue
+
+            if d <= cutoff:
+                try:
+                    expired_ids.append(int(r["id"]))
+                except Exception:
+                    continue
+
+        if not expired_ids:
+            return []
+
+        q_marks = ",".join(["?"] * len(expired_ids))
+
+        # Cleanup notifications referencing these assignments.
+        cur.execute(f"DELETE FROM notifications WHERE assignment_id IN ({q_marks})", tuple(expired_ids))
+
+        # Cleanup schedule items that reference these assignments.
+        cur.execute(
+            f"""
+            SELECT id FROM schedule_items
+            WHERE task_id IN ({q_marks})
+              AND task_type IN ('homework','quiz','test','exam')
+            """,
+            tuple(expired_ids),
+        )
+        schedule_item_ids = [int(x["id"]) for x in cur.fetchall()]
+        if schedule_item_ids:
+            si_marks = ",".join(["?"] * len(schedule_item_ids))
+            cur.execute(
+                f"DELETE FROM schedule_google_events WHERE schedule_item_id IN ({si_marks})",
+                tuple(schedule_item_ids),
+            )
+            cur.execute(
+                f"DELETE FROM schedule_items WHERE id IN ({si_marks})",
+                tuple(schedule_item_ids),
+            )
+
+        # Finally delete the assignments.
+        cur.execute(f"DELETE FROM assignments WHERE id IN ({q_marks})", tuple(expired_ids))
+        conn.commit()
+        return expired_ids
+
+
+def get_upcoming_assignments_for_class(
+    *,
+    target_class: str,
+    now_iso: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return upcoming items for a class (deadline >= today).
+
+    Uses lexicographic compare on ISO-8601 strings.
+    """
+    init_db()
+    if now_iso is None:
+        now_iso = datetime.utcnow().date().isoformat()
+
+    student_class = _normalize_class_code(target_class)
+
+    # Extract grade digits prefix (e.g., '5' from '5A', '10' from '10B').
+    grade = ""
+    i = 0
+    while i < len(student_class) and student_class[i].isdigit():
+        grade += student_class[i]
+        i += 1
+
+    like_prefix = f"{grade}%" if grade else student_class
+
+    with _connect() as conn:
+        cur = conn.cursor()
+        if grade:
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class LIKE ?
+                  AND deadline >= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 500
+                """,
+                (like_prefix, now_iso),
+            )
+            candidates = [dict(r) for r in cur.fetchall()]
+
+            # Also include form-level entries stored exactly as '5' etc.
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class = ?
+                  AND deadline >= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 500
+                """,
+                (grade, now_iso),
+            )
+            candidates += [dict(r) for r in cur.fetchall()]
+        else:
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class = ?
+                  AND deadline >= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 500
+                """,
+                (student_class, now_iso),
+            )
+            candidates = [dict(r) for r in cur.fetchall()]
+
+    def matches(t: str) -> bool:
+        tc = _normalize_class_code(t)
+        if not tc:
+            return False
+        if tc == student_class:
+            return True
+        # Form-level: '5' matches any '5X'
+        if grade and tc == grade:
+            return True
+        # Optional legacy: '5ABCD' matches sections A/B/C/D
+        if grade and tc.startswith(grade) and len(tc) > len(grade):
+            sections = tc[len(grade) :]
+            student_section = student_class[len(grade) :]
+            if student_section and student_section in sections:
+                return True
+        return False
+
+    filtered = [c for c in candidates if matches(str(c.get("target_class") or ""))]
+
+    # De-duplicate in case of overlap.
+    seen: set[int] = set()
+    result: list[dict[str, Any]] = []
+    for r in filtered:
+        rid = int(r.get("id") or 0)
+        if rid and rid not in seen:
+            seen.add(rid)
+            result.append(r)
+        if len(result) >= int(limit):
+            break
+    return result
+
+
+def list_assignments_for_class_range(
+    *,
+    target_class: str,
+    start_date: str,
+    end_date: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Assignments for a class where deadline is within [start_date, end_date] (YYYY-MM-DD).
+
+    Uses same class matching logic as get_upcoming_assignments_for_class.
+    """
+    init_db()
+
+    student_class = _normalize_class_code(target_class)
+
+    # Extract grade digits prefix (e.g., '5' from '5A', '10' from '10B').
+    grade = ""
+    i = 0
+    while i < len(student_class) and student_class[i].isdigit():
+        grade += student_class[i]
+        i += 1
+
+    like_prefix = f"{grade}%" if grade else student_class
+
+    with _connect() as conn:
+        cur = conn.cursor()
+        if grade:
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class LIKE ?
+                  AND deadline >= ?
+                  AND deadline <= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 2000
+                """,
+                (like_prefix, start_date, end_date),
+            )
+            candidates = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class = ?
+                  AND deadline >= ?
+                  AND deadline <= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 2000
+                """,
+                (grade, start_date, end_date),
+            )
+            candidates += [dict(r) for r in cur.fetchall()]
+        else:
+            cur.execute(
+                """
+                SELECT id, item_type, target_class, subject, description, scope, deadline, created_at
+                FROM assignments
+                WHERE target_class = ?
+                  AND deadline >= ?
+                  AND deadline <= ?
+                ORDER BY deadline ASC, id DESC
+                LIMIT 2000
+                """,
+                (student_class, start_date, end_date),
+            )
+            candidates = [dict(r) for r in cur.fetchall()]
+
+    def matches(t: str) -> bool:
+        tc = _normalize_class_code(t)
+        if not tc:
+            return False
+        if tc == student_class:
+            return True
+        if grade and tc == grade:
+            return True
+        if grade and tc.startswith(grade) and len(tc) > len(grade):
+            sections = tc[len(grade) :]
+            student_section = student_class[len(grade) :]
+            if student_section and student_section in sections:
+                return True
+        return False
+
+    filtered = [c for c in candidates if matches(str(c.get("target_class") or ""))]
+
+    seen: set[int] = set()
+    result: list[dict[str, Any]] = []
+    for r in filtered:
+        rid = int(r.get("id") or 0)
+        if rid and rid not in seen:
+            seen.add(rid)
+            result.append(r)
+        if len(result) >= int(limit):
+            break
+
+    return result
+
+
+# ================================
+# Notifications
+# ================================
+
+def create_notification(
+    *,
+    user_id: int,
+    assignment_id: int,
+    notification_type: str,
+    message: str,
+) -> int:
+    """Create a new notification."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO notifications (user_id, assignment_id, notification_type, message, is_read, created_at)
+            VALUES (?, ?, ?, ?, 0, ?)
+            """,
+            (user_id, assignment_id, notification_type, message, _now_iso()),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def list_notifications(*, user_id: int, unread_only: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+    """List notifications for a user."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        if unread_only:
+            cur.execute(
+                """
+                SELECT n.*, a.subject, a.item_type, a.deadline
+                FROM notifications n
+                JOIN assignments a ON n.assignment_id = a.id
+                WHERE n.user_id = ? AND n.is_read = 0
+                ORDER BY n.created_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT n.*, a.subject, a.item_type, a.deadline
+                FROM notifications n
+                JOIN assignments a ON n.assignment_id = a.id
+                WHERE n.user_id = ?
+                ORDER BY n.created_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def mark_notification_read(*, notification_id: int, user_id: int) -> None:
+    """Mark a notification as read."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE notifications
+            SET is_read = 1
+            WHERE id = ? AND user_id = ?
+            """,
+            (notification_id, user_id),
+        )
+        conn.commit()
+
+
+def delete_notification(*, notification_id: int, user_id: int) -> None:
+    """Delete a notification."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM notifications
+            WHERE id = ? AND user_id = ?
+            """,
+            (notification_id, user_id),
+        )
+        conn.commit()
+
+
+def mark_all_notifications_read(*, user_id: int) -> None:
+    """Mark all notifications as read for a user."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE notifications
+            SET is_read = 1
+            WHERE user_id = ? AND is_read = 0
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+
+def get_unread_notification_count(*, user_id: int) -> int:
+    """Get count of unread notifications."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM notifications
+            WHERE user_id = ? AND is_read = 0
+            """,
+            (user_id,),
+        )
+        return cur.fetchone()[0]
+
+
+def check_and_create_deadline_notifications() -> int:
+    """
+    Check all assignments and create notifications for students
+    when deadlines are 7 days or 3 days away.
+    Returns count of notifications created.
+    """
+    from datetime import datetime, timedelta
+    
+    now = datetime.utcnow()
+    seven_days_from_now = (now + timedelta(days=7)).date()
+    three_days_from_now = (now + timedelta(days=3)).date()
+    
+    count = 0
+    
+    with _connect() as conn:
+        cur = conn.cursor()
+        
+        # Get all students
+        cur.execute("SELECT id, class_level FROM users WHERE role = 'student' AND class_level IS NOT NULL")
+        students = [dict(r) for r in cur.fetchall()]
+        
+        for student in students:
+            student_id = student["id"]
+            student_class = _normalize_class_code(student.get("class_level") or "")
+            if not student_class:
+                continue
+            
+            # Get assignments for this student's class
+            cur.execute(
+                """
+                SELECT id, target_class, subject, item_type, deadline, description
+                FROM assignments
+                WHERE deadline >= ?
+                ORDER BY deadline ASC
+                """,
+                (now.date().isoformat(),),
+            )
+            assignments = [dict(r) for r in cur.fetchall()]
+            
+            for assignment in assignments:
+                try:
+                    deadline_date = datetime.fromisoformat(assignment["deadline"]).date()
+                except:
+                    continue
+                
+                # Check if this assignment is for this student's class
+                target_class = _normalize_class_code(assignment.get("target_class") or "")
+                if target_class != student_class:
+                    # Simple matching for now
+                    continue
+                
+                assignment_id = assignment["id"]
+                
+                # Check if we need to create 7-day notification
+                if deadline_date == seven_days_from_now:
+                    # Check if notification already exists
+                    cur.execute(
+                        """
+                        SELECT id FROM notifications
+                        WHERE user_id = ? AND assignment_id = ? AND notification_type = '7_days'
+                        """,
+                        (student_id, assignment_id),
+                    )
+                    if not cur.fetchone():
+                        message = f"📚 Reminder: {assignment['subject']} {assignment['item_type']} due in 7 days ({assignment['deadline']})"
+                        create_notification(
+                            user_id=student_id,
+                            assignment_id=assignment_id,
+                            notification_type="7_days",
+                            message=message,
+                        )
+                        count += 1
+                
+                # Check if we need to create 3-day notification
+                if deadline_date == three_days_from_now:
+                    # Check if notification already exists
+                    cur.execute(
+                        """
+                        SELECT id FROM notifications
+                        WHERE user_id = ? AND assignment_id = ? AND notification_type = '3_days'
+                        """,
+                        (student_id, assignment_id),
+                    )
+                    if not cur.fetchone():
+                        message = f"⚠️ Urgent: {assignment['subject']} {assignment['item_type']} due in 3 days ({assignment['deadline']})"
+                        create_notification(
+                            user_id=student_id,
+                            assignment_id=assignment_id,
+                            notification_type="3_days",
+                            message=message,
+                        )
+                        count += 1
+    
+    return count
+
+
+def get_today_study_seconds(user_id: int) -> int:
+    """Return an estimate of today's study duration in seconds for progress bar."""
+    init_db()
+    today_prefix = datetime.utcnow().strftime("%Y-%m-%d")
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT SUM(accumulated_seconds) FROM study_timers WHERE user_id = ? AND updated_at LIKE ?",
+            (int(user_id), f"{today_prefix}%")
+        )
+        row = cur.fetchone()
+        try:
+            return int(row[0] or 0)
+        except Exception:
+            return 0
+
+
+def get_upcoming_schedule_items_for_profile(user_id: int, limit: int = 3) -> list[dict[str, Any]]:
+    """Get the closest upcoming schedule items starting from today."""
+    init_db()
+    today = date.today().isoformat()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, user_id, task_type, task_id, date, start_time, end_time, subject, reason 
+            FROM schedule_items 
+            WHERE user_id = ? AND date >= ?
+            ORDER BY date ASC, start_time ASC
+            LIMIT ?
+            """,
+            (int(user_id), today, int(limit))
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_classmates(class_level: str, exclude_user_id: int, limit: int = 4) -> list[dict[str, Any]]:
+    """Get other students in the same class."""
+    if not class_level:
+        return []
+    init_db()
+    norm_class = _normalize_class_code(class_level)
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, email 
+            FROM users 
+            WHERE role = 'student' AND REPLACE(UPPER(class_level), ' ', '') = ? AND id != ?
+            LIMIT ?
+            """,
+            (norm_class, int(exclude_user_id), int(limit))
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+# ── Quiz helpers ──────────────────────────────────────────────────────────
+
+def create_quiz_attempt(
+    *,
+    user_id: int,
+    subject: str,
+    topic: str,
+    difficulty: str,
+    questions_json: str,
+) -> int:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO quiz_attempts (user_id, subject, topic, difficulty, questions_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (int(user_id), subject, topic, difficulty, questions_json, now),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_quiz_attempt(*, quiz_id: int, user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM quiz_attempts WHERE id = ? AND user_id = ?",
+            (int(quiz_id), int(user_id)),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def complete_quiz_attempt(
+    *,
+    quiz_id: int,
+    user_id: int,
+    answers_json: str,
+    score: int,
+    total: int,
+    coins_awarded: int,
+) -> None:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE quiz_attempts
+            SET answers_json = ?, score = ?, total = ?, coins_awarded = ?, completed_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (answers_json, int(score), int(total), int(coins_awarded), now, int(quiz_id), int(user_id)),
+        )
+        conn.commit()
+
+
+def list_quiz_attempts(*, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM quiz_attempts WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (int(user_id), int(limit)),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_quiz_subject_performance(*, user_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                subject,
+                COUNT(*) AS attempts,
+                AVG((CAST(score AS REAL) * 100.0) / CAST(total AS REAL)) AS avg_percent,
+                MAX(completed_at) AS last_completed_at
+            FROM quiz_attempts
+            WHERE user_id = ?
+              AND completed_at IS NOT NULL
+              AND score IS NOT NULL
+              AND total IS NOT NULL
+              AND total > 0
+            GROUP BY subject
+            ORDER BY attempts DESC, last_completed_at DESC, subject COLLATE NOCASE ASC
+            """,
+            (int(user_id),),
+        )
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            try:
+                item["avg_percent"] = round(float(item.get("avg_percent") or 0.0), 1)
+            except Exception:
+                item["avg_percent"] = 0.0
+            rows.append(item)
+        return rows
+
+
+# ── Activity helpers ──────────────────────────────────────────────────────
+
+def create_activity(
+    *,
+    teacher_user_id: int,
+    name: str,
+    activity_type: str,
+    tags: list[str],
+    date: str,
+    start_time: str,
+    end_time: str,
+    venue: str,
+) -> int:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO activities (teacher_user_id, name, activity_type, tags_json, date, start_time, end_time, venue, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(teacher_user_id),
+                name,
+                activity_type,
+                json.dumps(tags, ensure_ascii=False),
+                date,
+                start_time,
+                end_time,
+                venue,
+                now,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_activity(*, activity_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM activities WHERE id = ?", (int(activity_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_activities_by_teacher(*, teacher_user_id: int, limit: int = 200) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM activities WHERE teacher_user_id = ? ORDER BY date ASC, start_time ASC LIMIT ?",
+            (int(teacher_user_id), int(limit)),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def list_all_activities(*, limit: int = 500) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM activities ORDER BY date ASC, start_time ASC LIMIT ?",
+            (int(limit),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def delete_activity(*, activity_id: int, teacher_user_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM activity_enrollments WHERE activity_id = ?",
+            (int(activity_id),),
+        )
+        cur.execute(
+            "DELETE FROM activities WHERE id = ? AND teacher_user_id = ?",
+            (int(activity_id), int(teacher_user_id)),
+        )
+        conn.commit()
+
+
+def enroll_in_activity(*, activity_id: int, user_id: int) -> bool:
+    """Enroll a student in an activity. Returns True if newly enrolled, False if already enrolled."""
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO activity_enrollments (activity_id, user_id, enrolled_at)
+                VALUES (?, ?, ?)
+                """,
+                (int(activity_id), int(user_id), now),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def unenroll_from_activity(*, activity_id: int, user_id: int) -> bool:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM activity_enrollments WHERE activity_id = ? AND user_id = ?",
+            (int(activity_id), int(user_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def is_enrolled(*, activity_id: int, user_id: int) -> bool:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM activity_enrollments WHERE activity_id = ? AND user_id = ?",
+            (int(activity_id), int(user_id)),
+        )
+        return cur.fetchone() is not None
+
+
+def list_enrolled_students(*, activity_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT u.id, u.name, u.email, u.class_level, ae.enrolled_at
+            FROM activity_enrollments ae
+            JOIN users u ON u.id = ae.user_id
+            WHERE ae.activity_id = ?
+            ORDER BY ae.enrolled_at ASC
+            """,
+            (int(activity_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def count_enrolled(*, activity_id: int) -> int:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM activity_enrollments WHERE activity_id = ?",
+            (int(activity_id),),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
+
+def list_student_enrollments(*, user_id: int) -> list[int]:
+    """Return list of activity_ids the student is enrolled in."""
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT activity_id FROM activity_enrollments WHERE user_id = ?",
+            (int(user_id),),
+        )
+        return [int(r[0]) for r in cur.fetchall()]
+
+
+def check_schedule_conflict(*, user_id: int, date: str, start_time: str, end_time: str) -> list[dict[str, Any]]:
+    """Return schedule items that overlap with the given time window."""
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT * FROM schedule_items
+            WHERE user_id = ? AND date = ?
+              AND start_time < ? AND end_time > ?
+            ORDER BY start_time ASC
+            """,
+            (int(user_id), date, end_time, start_time),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Notebook (NotebookLM) helpers
+# ---------------------------------------------------------------------------
+
+def create_notebook(*, user_id: int, title: str) -> int:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO notebooks (user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (int(user_id), title, now, now),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_notebooks(*, user_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM notebooks WHERE user_id = ? ORDER BY updated_at DESC",
+            (int(user_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_notebook(*, notebook_id: int, user_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM notebooks WHERE id = ? AND user_id = ?",
+            (int(notebook_id), int(user_id)),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def update_notebook_title(*, notebook_id: int, user_id: int, title: str) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE notebooks SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (title, _now_iso(), int(notebook_id), int(user_id)),
+        )
+        conn.commit()
+
+
+def delete_notebook(*, notebook_id: int, user_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM notebook_outputs WHERE notebook_id = ?", (int(notebook_id),))
+        cur.execute("DELETE FROM notebook_notes WHERE notebook_id = ?", (int(notebook_id),))
+        cur.execute("DELETE FROM notebook_sources WHERE notebook_id = ?", (int(notebook_id),))
+        cur.execute(
+            "DELETE FROM notebooks WHERE id = ? AND user_id = ?",
+            (int(notebook_id), int(user_id)),
+        )
+        conn.commit()
+
+
+def touch_notebook(*, notebook_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE notebooks SET updated_at = ? WHERE id = ?",
+            (_now_iso(), int(notebook_id)),
+        )
+        conn.commit()
+
+
+# --- Sources ---
+
+def add_notebook_source(*, notebook_id: int, source_type: str, title: str, content: str, meta: Optional[dict[str, Any]] = None) -> int:
+    init_db()
+    meta_json = json.dumps(meta or {}, ensure_ascii=False)
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO notebook_sources (notebook_id, source_type, title, content, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (int(notebook_id), source_type, title, content, meta_json, now),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)
+        return int(cur.lastrowid)
+
+
+def list_notebook_sources(*, notebook_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM notebook_sources WHERE notebook_id = ? ORDER BY created_at ASC",
+            (int(notebook_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_notebook_source(*, source_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM notebook_sources WHERE id = ?", (int(source_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_notebook_source(*, source_id: int, notebook_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM notebook_sources WHERE id = ? AND notebook_id = ?",
+            (int(source_id), int(notebook_id)),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)
+
+
+# --- Notes ---
+
+def add_notebook_note(*, notebook_id: int, title: str = "Untitled note", content: str = "") -> int:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO notebook_notes (notebook_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (int(notebook_id), title, content, now, now),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)
+        return int(cur.lastrowid)
+
+
+def list_notebook_notes(*, notebook_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM notebook_notes WHERE notebook_id = ? ORDER BY updated_at DESC",
+            (int(notebook_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_notebook_note(*, note_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM notebook_notes WHERE id = ?", (int(note_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def update_notebook_note(*, note_id: int, title: str, content: str) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE notebook_notes SET title = ?, content = ?, updated_at = ? WHERE id = ?",
+            (title, content, _now_iso(), int(note_id)),
+        )
+        conn.commit()
+
+
+def delete_notebook_note(*, note_id: int, notebook_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM notebook_notes WHERE id = ? AND notebook_id = ?",
+            (int(note_id), int(notebook_id)),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)
+
+
+# --- Outputs ---
+
+def add_notebook_output(*, notebook_id: int, output_type: str, title: str, content: str) -> int:
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO notebook_outputs (notebook_id, output_type, title, content, created_at) VALUES (?, ?, ?, ?, ?)",
+            (int(notebook_id), output_type, title, content, now),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)
+        return int(cur.lastrowid)
+
+
+def list_notebook_outputs(*, notebook_id: int) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM notebook_outputs WHERE notebook_id = ? ORDER BY created_at DESC",
+            (int(notebook_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_notebook_output(*, output_id: int) -> Optional[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM notebook_outputs WHERE id = ?", (int(output_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_notebook_output(*, output_id: int, notebook_id: int) -> None:
+    init_db()
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM notebook_outputs WHERE id = ? AND notebook_id = ?",
+            (int(output_id), int(notebook_id)),
+        )
+        conn.commit()
+        touch_notebook(notebook_id=notebook_id)

@@ -1,0 +1,89 @@
+<div class="schedule-top">
+  <div class="schedule-month-title">{{ month_label }}</div>
+  <div class="schedule-top-actions">
+    <a class="link" href="{{ url_for('schedule', ym=prev_ym) }}">←</a>
+    <a class="link" href="{{ url_for('schedule', ym=next_ym) }}">→</a>
+    {% if google_connected %}
+      <form method="POST" action="{{ url_for('google_disconnect') }}" style="margin:0; display:inline-block">
+        <button type="submit">Disconnect Google</button>
+      </form>
+      <button type="button" id="syncBtn">Sync to Google</button>
+    {% else %}
+      <a class="link" href="{{ url_for('google_connect') }}">Connect Google Calendar</a>
+    {% endif %}
+    <button type="button" id="generateBtn">Generate</button>
+    <button type="button" id="deleteAiBtn" title="Delete AI generated timetable">Delete</button>
+    <button type="button" id="editBtn" title="Manual edit">✎</button>
+  </div>
+</div>
+
+<div class="schedule-timetable-wrap" id="scheduleTimetableWrap">
+  <div class="schedule-timetable-content">
+    <div class="card" id="monthEditBox" hidden style="margin-top:12px;">
+      <div style="font-weight:700">Edit mode</div>
+      <div class="muted" style="margin-top:6px;">Click a day box to pick the date.</div>
+
+      <div style="margin-top:10px; display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+          <label style="margin-top:0;">Start</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="monthEditStart" type="text" inputmode="numeric" placeholder="20:00" autocomplete="off" />
+            <button type="button" id="monthEditStartToggle" title="Pick time" style="margin-top:0; padding: 10px 12px;">▼</button>
+          </div>
+          <div id="monthEditStartDrop" hidden style="margin-top:8px;">
+            <select id="monthEditStartPick" size="6" style="width:100%;"></select>
+          </div>
+        </div>
+        <div>
+          <label style="margin-top:0;">End</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="monthEditEnd" type="text" inputmode="numeric" placeholder="21:00" autocomplete="off" />
+            <button type="button" id="monthEditEndToggle" title="Pick time" style="margin-top:0; padding: 10px 12px;">▼</button>
+          </div>
+          <div id="monthEditEndDrop" hidden style="margin-top:8px;">
+            <select id="monthEditEndPick" size="6" style="width:100%;"></select>
+          </div>
+        </div>
+      </div>
+
+      <label>What to do</label>
+      <input id="monthEditWhat" placeholder="Meeting with Nacho / Study math chapter 1" />
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+        <button type="button" id="monthEditAddBtn" style="margin-top:0;">Add</button>
+        <button type="button" id="monthEditDeleteBtn" style="margin-top:0;" hidden>Delete selected</button>
+        <div class="muted" id="monthEditHint" style="margin-top:0;">Selected date: <span id="monthEditDate"></span></div>
+      </div>
+    </div>
+
+    <div class="schedule-grid-month">
+      {% for wd in week_days %}
+        <div class="schedule-wd">{{ wd }}</div>
+      {% endfor %}
+
+      {% for cell in month_cells %}
+        <a class="schedule-cell {% if not cell.in_month %}muted-cell{% endif %}{% if cell.past %} past-cell{% endif %}" data-date="{{ cell.date }}" href="{{ url_for('schedule', week=cell.date, ym=ym) }}">
+          <div class="schedule-cell-num">{{ cell.day }}</div>
+          {% if not cell.past %}
+          <div class="schedule-cell-list">
+            {% for r in (cell.rows or []) %}
+              {% if r.kind == 'plan' %}
+                <div class="schedule-deadline schedule-plan schedule-plan-item" data-plan-id="{{ r.id }}">{{ r.text }}</div>
+              {% else %}
+                <div class="schedule-deadline">{{ r.text }}</div>
+              {% endif %}
+            {% endfor %}
+            {% if (cell.more_count or 0) > 0 %}
+              <div class="schedule-deadline schedule-more">+{{ cell.more_count }}</div>
+            {% endif %}
+          </div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="schedule-loading-overlay" id="scheduleLoadingOverlay" aria-hidden="true">
+    <div class="schedule-loading-spinner" aria-label="Loading"></div>
+  </div>
+</div>

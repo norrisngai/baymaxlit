@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/auth.css') }}" />{% endblock %}
+{% block body %}
+<div class="auth">
+  <h1>Elective subjects</h1>
+  <div class="muted">Form 4+ students: choose the elective subjects you are taking.</div>
+
+  <form method="POST" class="card">
+    <label>Electives</label>
+    <div class="chips">
+      {% for s in elective_choices %}
+        <label class="chip">
+          <input type="checkbox" name="electives" value="{{ s }}" {% if s in selected %}checked{% endif %} />
+          <span>{{ s }}</span>
+        </label>
+      {% endfor %}
+    </div>
+
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

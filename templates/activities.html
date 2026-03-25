@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/activities.css') }}" />{% endblock %}
+{% block body %}
+<div class="page">
+  <h1>Activities</h1>
+  <div class="muted">Discover extracurricular activities based on your interests.</div>
+
+  <!-- Tab navigation -->
+  <div class="activity-tabs">
+    <button class="activity-tab active" data-tab="recommended" onclick="switchTab('recommended')">Recommended</button>
+    <button class="activity-tab" data-tab="all" onclick="switchTab('all')">All Activities</button>
+    <button class="activity-tab" data-tab="mandatory" onclick="switchTab('mandatory')">Mandatory</button>
+  </div>
+
+  <!-- Recommended Tab -->
+  <div class="activity-tab-content" id="tab-recommended">
+    {% if recommended %}
+      <div class="activity-grid">
+        {% for act in recommended %}
+          <div class="card activity-card">
+            <div class="activity-card-header">
+              <h3 style="margin:0;">{{ act.name }}</h3>
+              <span class="activity-type-badge optional">optional</span>
+            </div>
+            <div class="activity-card-details">
+              <div class="activity-detail">
+                <span class="muted">Date:</span> {{ act.date }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Time:</span> {{ act.start_time }} – {{ act.end_time }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Venue:</span> {{ act.venue }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Participants:</span> {{ act.enrolled_count }}
+              </div>
+              {% if act.tags %}
+                <div class="activity-tags">
+                  {% for tag in act.tags %}
+                    <span class="activity-tag">{{ tag }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+            <div class="activity-card-actions">
+              {% if act.enrolled %}
+                <form method="POST" action="{{ url_for('leave_activity') }}">
+                  <input type="hidden" name="activity_id" value="{{ act.id }}" />
+                  <button type="submit" class="btn btn-sm btn-danger">Leave</button>
+                </form>
+              {% else %}
+                <form method="POST" action="{{ url_for('join_activity') }}">
+                  <input type="hidden" name="activity_id" value="{{ act.id }}" />
+                  <button type="submit" class="btn btn-sm btn-join">Join</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="muted" style="margin-top:12px;">No recommended activities right now. Check "All Activities" tab.</div>
+    {% endif %}
+  </div>
+
+  <!-- All Activities Tab -->
+  <div class="activity-tab-content" id="tab-all" style="display:none;">
+    {% set all_optional = recommended + other %}
+    {% if all_optional %}
+      <div class="activity-grid">
+        {% for act in all_optional %}
+          <div class="card activity-card">
+            <div class="activity-card-header">
+              <h3 style="margin:0;">{{ act.name }}</h3>
+              <span class="activity-type-badge optional">optional</span>
+            </div>
+            <div class="activity-card-details">
+              <div class="activity-detail">
+                <span class="muted">Date:</span> {{ act.date }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Time:</span> {{ act.start_time }} – {{ act.end_time }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Venue:</span> {{ act.venue }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Participants:</span> {{ act.enrolled_count }}
+              </div>
+              {% if act.tags %}
+                <div class="activity-tags">
+                  {% for tag in act.tags %}
+                    <span class="activity-tag">{{ tag }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+            <div class="activity-card-actions">
+              {% if act.enrolled %}
+                <form method="POST" action="{{ url_for('leave_activity') }}">
+                  <input type="hidden" name="activity_id" value="{{ act.id }}" />
+                  <button type="submit" class="btn btn-sm btn-danger">Leave</button>
+                </form>
+              {% else %}
+                <form method="POST" action="{{ url_for('join_activity') }}">
+                  <input type="hidden" name="activity_id" value="{{ act.id }}" />
+                  <button type="submit" class="btn btn-sm btn-join">Join</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="muted" style="margin-top:12px;">No optional activities available.</div>
+    {% endif %}
+  </div>
+
+  <!-- Mandatory Tab -->
+  <div class="activity-tab-content" id="tab-mandatory" style="display:none;">
+    {% if mandatory %}
+      <div class="activity-grid">
+        {% for act in mandatory %}
+          <div class="card activity-card">
+            <div class="activity-card-header">
+              <h3 style="margin:0;">{{ act.name }}</h3>
+              <span class="activity-type-badge mandatory">mandatory</span>
+            </div>
+            <div class="activity-card-details">
+              <div class="activity-detail">
+                <span class="muted">Date:</span> {{ act.date }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Time:</span> {{ act.start_time }} – {{ act.end_time }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Venue:</span> {{ act.venue }}
+              </div>
+              <div class="activity-detail">
+                <span class="muted">Participants:</span> {{ act.enrolled_count }}
+              </div>
+              {% if act.tags %}
+                <div class="activity-tags">
+                  {% for tag in act.tags %}
+                    <span class="activity-tag">{{ tag }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+            <div class="activity-card-actions">
+              <span class="muted" style="font-size:.85em;">Auto-enrolled &mdash; added to your schedule</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="muted" style="margin-top:12px;">No mandatory activities.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function switchTab(tabName) {
+  document.querySelectorAll('.activity-tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.activity-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tabName).style.display = 'block';
+  document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,387 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/chat.css') }}" />{% endblock %}
+{% block body %}
+<div class="app app-fadein">
+  <aside class="sidebar">
+    <div class="sidebartop">
+      <button class="iconbtn" id="chatSidebarToggle" type="button" aria-label="Toggle chat history" title="Collapse">&lt;</button>
+      <button class="iconbtn" id="chatEditToggle" type="button" aria-label="Edit mode" title="Edit chats" style="margin-left:8px;">✎</button>
+    </div>
+    <form method="POST" action="{{ url_for('chat_new') }}" style="margin:0">
+      <button class="newchat" type="submit" title="New chat">
+        <span class="navicon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
+        </span>
+        <span class="navlabel">New chat</span>
+      </button>
+    </form>
+
+    <div class="chatlist">
+      {% for c in chats %}
+        <a class="chatlink {% if c.id == active_chat_id %}active{% endif %}" href="{{ url_for('chat', chat_id=c.id) }}" title="{{ c.title }}" data-chat-id="{{ c.id }}">
+          <span class="navicon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+            </svg>
+          </span>
+          <span class="navlabel">
+            <div class="title">{{ c.title }}</div>
+            <div class="meta">chat_id: {{ c.id }}</div>
+          </span>
+          <button type="button" class="chat-delete-btn" data-chat-id="{{ c.id }}" data-chat-title="{{ c.title }}" aria-label="Delete chat" title="Delete chat" style="display:none;">✕</button>
+        </a>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="chat-pane" id="chatPane">
+      <div class="messages" id="messages">
+        {% for m in messages %}
+          <div class="msgrow {% if m.role == 'user' %}user{% else %}assistant{% endif %}">
+            <div class="bubble">
+              <div class="role">{% if m.role == 'user' %}You{% else %}Baymax-lite{% endif %}</div>
+              {% if m.role == 'assistant' %}
+                <div class="content">{{ m.content_html|safe }}</div>
+              {% else %}
+                <div class="content">{{ m.content }}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="attachbar" id="attachBar" style="display:none;">
+        <div class="attachpill">
+          <div class="attachbadge" id="attachType">FILE</div>
+          <div class="attachmeta">
+            <div class="attachname" id="attachName"></div>
+            <div class="attachsub">Attached</div>
+          </div>
+          <button type="button" class="attachclear" id="attachClear" aria-label="Remove attachment" title="Remove">✕</button>
+        </div>
+      </div>
+
+      <form method="POST" class="composer" id="composerForm" data-chat-id="{{ active_chat_id }}">
+        <textarea name="message" id="composerInput" placeholder="Message Baymax-lite..." autocomplete="off" rows="1"></textarea>
+        <input type="file" id="composerFile" class="composer-file" accept="image/*,.pdf,.docx,.txt,.md,.csv" />
+        <input type="hidden" name="use_web" id="useWebFlag" value="0" />
+        <button type="button" id="attachBtn" class="webtoggle" title="Attach a file" aria-label="Attach a file">
+          <span class="navicon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 16V4" />
+              <path d="M7 9l5-5 5 5" />
+              <path d="M4 20h16" />
+            </svg>
+          </span>
+        </button>
+        <button type="button" id="webToggle" class="webtoggle" aria-pressed="false" title="Toggle web search for the next message">Web Search: Off</button>
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script>
+  (function () {
+    const key = 'chatSidebarCollapsed';
+    const sidebar = document.querySelector('.sidebar');
+    const btn = document.getElementById('chatSidebarToggle');
+    if (!sidebar || !btn) return;
+
+    function apply(collapsed) {
+      sidebar.classList.toggle('collapsed', collapsed);
+      btn.textContent = collapsed ? '>' : '<';
+      btn.setAttribute('title', collapsed ? 'Expand' : 'Collapse');
+    }
+
+    const initial = localStorage.getItem(key) === '1';
+    apply(initial);
+
+    btn.addEventListener('click', () => {
+      const next = !sidebar.classList.contains('collapsed');
+      localStorage.setItem(key, next ? '1' : '0');
+      apply(next);
+    });
+  })();
+
+  (function () {
+    const editToggle = document.getElementById('chatEditToggle');
+    const deleteButtons = document.querySelectorAll('.chat-delete-btn');
+    if (!editToggle) return;
+
+    let editMode = false;
+
+    editToggle.addEventListener('click', () => {
+      editMode = !editMode;
+      editToggle.classList.toggle('active', editMode);
+      editToggle.style.opacity = editMode ? '1' : '0.6';
+      
+      deleteButtons.forEach(btn => {
+        btn.style.display = editMode ? 'block' : 'none';
+      });
+    });
+
+    deleteButtons.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const chatId = btn.dataset.chatId;
+        const chatTitle = btn.dataset.chatTitle || 'this chat';
+        
+        if (!confirm(`Are you sure you want to delete "${chatTitle}"? This cannot be undone.`)) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/chat/${chatId}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          const data = await response.json();
+          
+          if (data.ok) {
+            // Redirect to chat home after deletion
+            window.location.href = '/chat';
+          } else {
+            alert('Failed to delete chat: ' + (data.error || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error('Delete error:', err);
+          alert('Failed to delete chat. Please try again.');
+        }
+      });
+    });
+  })();
+
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+
+  const form = document.getElementById('composerForm');
+  const input = document.getElementById('composerInput');
+  const webToggle = document.getElementById('webToggle');
+  const useWebFlag = document.getElementById('useWebFlag');
+  const sendBtn = document.getElementById('sendBtn');
+  const fileInput = document.getElementById('composerFile');
+  const attachBtn = document.getElementById('attachBtn');
+  const attachBar = document.getElementById('attachBar');
+  const attachName = document.getElementById('attachName');
+  const attachType = document.getElementById('attachType');
+  const attachClear = document.getElementById('attachClear');
+
+  let useWebEnabled = false;
+
+  function applyWebToggle() {
+    if (!webToggle || !useWebFlag) return;
+    webToggle.classList.toggle('active', useWebEnabled);
+    webToggle.setAttribute('aria-pressed', useWebEnabled ? 'true' : 'false');
+    webToggle.textContent = useWebEnabled ? 'Web Search: On' : 'Web Search: Off';
+    useWebFlag.value = useWebEnabled ? '1' : '0';
+  }
+
+  if (webToggle) {
+    webToggle.addEventListener('click', () => {
+      useWebEnabled = !useWebEnabled;
+      applyWebToggle();
+      input && input.focus();
+    });
+  }
+
+  applyWebToggle();
+
+  function fileLabel(file) {
+    if (!file) return { name: '', type: 'FILE' };
+    const name = file.name || 'upload';
+    const t = (file.type || '').toLowerCase();
+    if (t.startsWith('image/')) return { name, type: 'IMAGE' };
+    const idx = name.lastIndexOf('.');
+    const ext = idx !== -1 ? name.slice(idx + 1).toUpperCase() : 'FILE';
+    return { name, type: ext || 'FILE' };
+  }
+
+  function showAttachment(file) {
+    if (!attachBar || !attachName || !attachType) return;
+    if (!file) {
+      attachBar.style.display = 'none';
+      attachName.textContent = '';
+      attachType.textContent = 'FILE';
+      return;
+    }
+    const lbl = fileLabel(file);
+    attachName.textContent = lbl.name;
+    attachType.textContent = lbl.type;
+    attachBar.style.display = 'block';
+  }
+
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', () => fileInput.click());
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+      showAttachment(f);
+    });
+  }
+
+  if (attachClear && fileInput) {
+    attachClear.addEventListener('click', () => {
+      fileInput.value = '';
+      showAttachment(null);
+      input && input.focus();
+    });
+  }
+
+  function autoResize() {
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+  }
+
+  input.addEventListener('input', autoResize);
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  function scrollToBottom() {
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function appendBubble(role, text, extraClass, html) {
+    const row = document.createElement('div');
+    row.className = `msgrow ${role} ${extraClass || ''}`.trim();
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    const roleDiv = document.createElement('div');
+    roleDiv.className = 'role';
+    roleDiv.textContent = role === 'user' ? 'You' : 'Baymax-lite';
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    if (role === 'assistant' && html) {
+      contentDiv.innerHTML = html;
+    } else {
+      contentDiv.textContent = text;
+    }
+
+    bubble.appendChild(roleDiv);
+    bubble.appendChild(contentDiv);
+    row.appendChild(bubble);
+    el.appendChild(row);
+      if (role === 'assistant' && typeof window.renderLatex === 'function') {
+        window.renderLatex(contentDiv);
+      }
+    scrollToBottom();
+    return row;
+  }
+
+  function appendTyping() {
+    const row = document.createElement('div');
+    row.className = 'msgrow assistant typing';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const roleDiv = document.createElement('div');
+    roleDiv.className = 'role';
+    roleDiv.textContent = 'Baymax-lite';
+    const dots = document.createElement('div');
+    dots.className = 'typing-dots';
+    dots.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+    bubble.appendChild(roleDiv);
+    bubble.appendChild(dots);
+    row.appendChild(bubble);
+    el.appendChild(row);
+    scrollToBottom();
+    return row;
+  }
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  form.addEventListener('submit', async (e) => {
+    // Keep normal POST as a fallback if JS fails.
+    e.preventDefault();
+
+    const chatId = form.dataset.chatId;
+    const text = (input.value || '').trim();
+    if (!text) return;
+
+    const useWeb = !!useWebEnabled;
+
+    const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+    input.value = '';
+    autoResize();
+    input.focus();
+    if (sendBtn) sendBtn.disabled = true;
+    if (webToggle) webToggle.disabled = true;
+    if (attachBtn) attachBtn.disabled = true;
+    input.disabled = true;
+
+    appendBubble('user', text);
+    const typingRow = appendTyping();
+    const started = performance.now();
+
+    try {
+      let resp;
+      if (file) {
+        const fd = new FormData();
+        fd.append('message', text);
+        fd.append('use_web', useWeb ? '1' : '0');
+        fd.append('file', file);
+        resp = await fetch(`/api/chat/${chatId}/send`, { method: 'POST', body: fd });
+      } else {
+        resp = await fetch(`/api/chat/${chatId}/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, use_web: useWeb })
+        });
+      }
+
+      const data = await resp.json().catch(() => ({}));
+
+      const elapsed = performance.now() - started;
+      if (elapsed < 1000) {
+        await wait(1000 - elapsed);
+      }
+
+      typingRow.remove();
+
+      if (!resp.ok || !data.ok) {
+        appendBubble('assistant', data.error || 'Sorry, something went wrong.');
+        return;
+      }
+
+      appendBubble('assistant', data.reply || '(no response)', '', data.reply_html || '');
+    } catch (err) {
+      const elapsed = performance.now() - started;
+      if (elapsed < 1000) {
+        await wait(1000 - elapsed);
+      }
+      typingRow.remove();
+      appendBubble('assistant', 'Sorry, I could not reach the server.');
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+      if (webToggle) webToggle.disabled = false;
+      if (attachBtn) attachBtn.disabled = false;
+      input.disabled = false;
+      // Clear attachment after sending.
+      if (fileInput) fileInput.value = '';
+      if (typeof showAttachment === 'function') showAttachment(null);
+      input.focus();
+    }
+  });
+
+</script>
+{% endblock %}

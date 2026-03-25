@@ -1,0 +1,605 @@
+{% extends 'base.html' %}
+{% block page_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/chat.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/revision.css') }}" />
+{% endblock %}
+{% block body %}
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebartop">
+      <button class="iconbtn" id="revisionSidebarToggle" type="button" aria-label="Toggle revision history" title="Collapse">&lt;</button>
+      <button class="iconbtn" id="revisionEditToggle" type="button" aria-label="Edit mode" title="Edit chats" style="margin-left:8px;">✎</button>
+    </div>
+    <form method="POST" action="{{ url_for('revision_new') }}" style="margin:0">
+      <input type="hidden" name="subject" value="General" />
+      <input type="hidden" name="topics" value="" />
+      <button class="newchat" type="submit" title="New revision session">
+        <span class="navicon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
+        </span>
+        <span class="navlabel">New revision</span>
+      </button>
+    </form>
+
+    <div class="chatlist">
+      {% for c in chats %}
+        <a class="chatlink {% if c.id == active_chat_id %}active{% endif %}" href="{{ url_for('revision', chat_id=c.id) }}" title="{{ c.title }}" data-chat-id="{{ c.id }}">
+          <span class="navicon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+          </span>
+          <span class="navlabel">
+            <div class="title">{{ c.title }}</div>
+            <div class="meta">chat_id: {{ c.id }}</div>
+          </span>
+          <button type="button" class="chat-delete-btn" data-chat-id="{{ c.id }}" data-chat-title="{{ c.title }}" aria-label="Delete chat" title="Delete chat" style="display:none;">✕</button>
+        </a>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="chat-pane" id="revisionPane">
+      {% if study_timer_enabled %}
+        <div class="studybar" id="studyBar" data-chat-id="{{ active_chat_id }}">
+          <div class="studybar-left">
+            <div class="studybar-title">Study timer</div>
+            <div class="studybar-time" id="studyTimerText">00:00</div>
+          </div>
+          <div class="studybar-right">
+            <div class="coinpill" title="Coin balance">
+              <span class="coinpill-label">Coins</span>
+              <span class="coinpill-value" id="coinBalance">{{ user_coins }}</span>
+            </div>
+            <button type="button" class="studybtn" id="timerStartBtn">Start</button>
+            <button type="button" class="studybtn" id="timerPauseBtn" disabled>Pause</button>
+          </div>
+        </div>
+        <div class="coin-float" id="coinFloat" aria-hidden="true" style="display:none;">+10</div>
+      {% endif %}
+      <div class="messages" id="messages">
+        {% for m in messages %}
+          <div class="msgrow {% if m.role == 'user' %}user{% else %}assistant{% endif %}">
+            <div class="bubble">
+              <div class="role">{% if m.role == 'user' %}You{% else %}Revision Bot{% endif %}</div>
+              {% if m.role == 'assistant' %}
+                <div class="content">{{ m.content_html|safe }}</div>
+              {% else %}
+                <div class="content">{{ m.content }}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="attachbar" id="attachBar" style="display:none;">
+        <div class="attachpill">
+          <div class="attachbadge" id="attachType">FILE</div>
+          <div class="attachmeta">
+            <div class="attachname" id="attachName"></div>
+            <div class="attachsub">Attached</div>
+          </div>
+          <button type="button" class="attachclear" id="attachClear" aria-label="Remove attachment" title="Remove">✕</button>
+        </div>
+      </div>
+
+      <form method="POST" class="composer" id="composerForm" data-chat-id="{{ active_chat_id }}" data-auto-init="{{ '1' if auto_init else '0' }}">
+        <textarea name="message" id="composerInput" placeholder="Ask questions about your revision..." autocomplete="off" rows="1"></textarea>
+        <input type="file" id="composerFile" class="composer-file" accept="image/*,.pdf,.docx,.txt,.md,.csv" />
+        <input type="hidden" name="use_web" id="useWebFlag" value="0" />
+        <button type="button" id="attachBtn" class="webtoggle" title="Attach a file" aria-label="Attach a file">
+          <span class="navicon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 16V4" />
+              <path d="M7 9l5-5 5 5" />
+              <path d="M4 20h16" />
+            </svg>
+          </span>
+        </button>
+        <button type="button" id="webToggle" class="webtoggle" aria-pressed="false" title="Toggle web search for the next message">Web Search: Off</button>
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script>
+  (function () {
+    const bar = document.getElementById('studyBar');
+    if (!bar) return;
+
+    const chatId = bar.dataset.chatId;
+    const startBtn = document.getElementById('timerStartBtn');
+    const pauseBtn = document.getElementById('timerPauseBtn');
+    const timeEl = document.getElementById('studyTimerText');
+    const coinEl = document.getElementById('coinBalance');
+    const floatEl = document.getElementById('coinFloat');
+
+    let isRunning = false;
+    let elapsedSeconds = 0;
+    let lastCoins = null;
+    let tickHandle = null;
+    let uiHandle = null;
+
+    function fmt(sec) {
+      const s = Math.max(0, Number(sec || 0) | 0);
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      const mm = String(m).padStart(2, '0');
+      const rr = String(r).padStart(2, '0');
+      return `${mm}:${rr}`;
+    }
+
+    function render() {
+      if (timeEl) timeEl.textContent = fmt(elapsedSeconds);
+      if (startBtn) startBtn.disabled = isRunning;
+      if (pauseBtn) pauseBtn.disabled = !isRunning;
+      bar.classList.toggle('running', !!isRunning);
+    }
+
+    function showCoinFloat(delta) {
+      if (!floatEl) return;
+      const d = Number(delta || 0) | 0;
+      if (d <= 0) return;
+      const pill = coinEl ? coinEl.closest('.coinpill') : null;
+      if (pill) {
+        const rect = pill.getBoundingClientRect();
+        // Position fixed relative to viewport, centered horizontally on pill.
+        floatEl.style.left = (rect.left + rect.width / 2) + 'px';
+        floatEl.style.top = (rect.top - 8) + 'px';
+      }
+      floatEl.textContent = `+${d} coins`;
+      floatEl.style.display = 'block';
+      floatEl.classList.remove('show');
+      // Force reflow so animation restarts.
+      void floatEl.offsetWidth;
+      floatEl.classList.add('show');
+      window.setTimeout(() => {
+        floatEl.classList.remove('show');
+        floatEl.style.display = 'none';
+      }, 900);
+    }
+
+    function popCoinPill() {
+      const pill = bar.querySelector('.coinpill');
+      if (!pill) return;
+      pill.classList.remove('gain');
+      void pill.offsetWidth;
+      pill.classList.add('gain');
+    }
+
+    function animateNumber(from, to) {
+      if (!coinEl) return;
+      const start = Number(from || 0) | 0;
+      const end = Number(to || 0) | 0;
+      if (end <= start) {
+        coinEl.textContent = String(end);
+        return;
+      }
+      const duration = 500;
+      const t0 = performance.now();
+
+      function step(now) {
+        const p = Math.min(1, (now - t0) / duration);
+        // Ease-out.
+        const eased = 1 - Math.pow(1 - p, 3);
+        const v = Math.floor(start + (end - start) * eased);
+        coinEl.textContent = String(v);
+        if (p < 1) requestAnimationFrame(step);
+        else coinEl.textContent = String(end);
+      }
+      requestAnimationFrame(step);
+    }
+
+    async function call(method, path) {
+      const resp = await fetch(path, { method });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || 'Request failed');
+      }
+      return data;
+    }
+
+    function applyStatus(data) {
+      isRunning = !!data.is_running;
+      elapsedSeconds = Number(data.elapsed_seconds || 0) | 0;
+      const newCoins = Number(data.coins || 0) | 0;
+      if (lastCoins === null) {
+        lastCoins = newCoins;
+        if (coinEl) coinEl.textContent = String(newCoins);
+      } else {
+        if (newCoins > lastCoins) {
+          popCoinPill();
+          animateNumber(lastCoins, newCoins);
+        } else {
+          if (coinEl) coinEl.textContent = String(newCoins);
+        }
+        lastCoins = newCoins;
+      }
+      const awarded = Number(data.coins_awarded_now || 0) | 0;
+      if (awarded > 0) showCoinFloat(awarded);
+      render();
+    }
+
+    async function refreshStatus() {
+      const data = await call('GET', `/api/study-timer/${chatId}/status`);
+      applyStatus(data);
+      return data;
+    }
+
+    async function start() {
+      const data = await call('POST', `/api/study-timer/${chatId}/start`);
+      applyStatus(data);
+    }
+
+    async function pause() {
+      const data = await call('POST', `/api/study-timer/${chatId}/pause`);
+      applyStatus(data);
+    }
+
+    async function tick() {
+      const data = await call('POST', `/api/study-timer/${chatId}/tick`);
+      applyStatus(data);
+    }
+
+    function ensureLoops() {
+      if (uiHandle) window.clearInterval(uiHandle);
+      if (tickHandle) window.clearInterval(tickHandle);
+      uiHandle = window.setInterval(() => {
+        if (!isRunning) return;
+        elapsedSeconds += 1;
+        render();
+      }, 1000);
+
+      tickHandle = window.setInterval(() => {
+        if (!isRunning) return;
+        tick().catch(() => {});
+      }, 5000);
+    }
+
+    if (startBtn) startBtn.addEventListener('click', () => start().catch(err => alert(err.message || String(err))));
+    if (pauseBtn) pauseBtn.addEventListener('click', () => pause().catch(err => alert(err.message || String(err))));
+
+    ensureLoops();
+    refreshStatus().catch(() => {});
+  })();
+
+  (function () {
+    const key = 'revisionSidebarCollapsed';
+    const sidebar = document.querySelector('.sidebar');
+    const btn = document.getElementById('revisionSidebarToggle');
+    if (!sidebar || !btn) return;
+
+    function apply(collapsed) {
+      sidebar.classList.toggle('collapsed', collapsed);
+      btn.textContent = collapsed ? '>' : '<';
+      btn.setAttribute('title', collapsed ? 'Expand' : 'Collapse');
+    }
+
+    const initial = localStorage.getItem(key) === '1';
+    apply(initial);
+
+    btn.addEventListener('click', () => {
+      const isCollapsed = sidebar.classList.contains('collapsed');
+      apply(!isCollapsed);
+      localStorage.setItem(key, !isCollapsed ? '1' : '0');
+    });
+  })();
+
+  (function () {
+    const editToggle = document.getElementById('revisionEditToggle');
+    const deleteButtons = document.querySelectorAll('.chat-delete-btn');
+    if (!editToggle) return;
+
+    let editMode = false;
+
+    editToggle.addEventListener('click', () => {
+      editMode = !editMode;
+      editToggle.classList.toggle('active', editMode);
+      editToggle.style.opacity = editMode ? '1' : '0.6';
+      
+      deleteButtons.forEach(btn => {
+        btn.style.display = editMode ? 'block' : 'none';
+      });
+    });
+
+    deleteButtons.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const chatId = btn.dataset.chatId;
+        const chatTitle = btn.dataset.chatTitle || 'this chat';
+        
+        if (!confirm(`Are you sure you want to delete "${chatTitle}"? This cannot be undone.`)) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/revision/${chatId}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          const data = await response.json();
+          
+          if (data.ok) {
+            // Redirect to revision home after deletion
+            window.location.href = '/revision';
+          } else {
+            alert('Failed to delete chat: ' + (data.error || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error('Delete error:', err);
+          alert('Failed to delete chat. Please try again.');
+        }
+      });
+    });
+  })();
+
+  (function () {
+    const el = document.getElementById('messages');
+    const form = document.getElementById('composerForm');
+    const input = document.getElementById('composerInput');
+    const webToggle = document.getElementById('webToggle');
+    const useWebFlag = document.getElementById('useWebFlag');
+    const sendBtn = document.getElementById('sendBtn');
+    const fileInput = document.getElementById('composerFile');
+    const attachBtn = document.getElementById('attachBtn');
+    const attachBar = document.getElementById('attachBar');
+    const attachName = document.getElementById('attachName');
+    const attachType = document.getElementById('attachType');
+    const attachClear = document.getElementById('attachClear');
+    if (!el || !form || !input) return;
+
+    el.scrollTop = el.scrollHeight;
+
+    let useWebEnabled = false;
+
+    function applyWebToggle() {
+      if (!webToggle || !useWebFlag) return;
+      webToggle.classList.toggle('active', useWebEnabled);
+      webToggle.setAttribute('aria-pressed', useWebEnabled ? 'true' : 'false');
+      webToggle.textContent = useWebEnabled ? 'Web Search: On' : 'Web Search: Off';
+      useWebFlag.value = useWebEnabled ? '1' : '0';
+    }
+
+    if (webToggle) {
+      webToggle.addEventListener('click', () => {
+        useWebEnabled = !useWebEnabled;
+        applyWebToggle();
+        input && input.focus();
+      });
+    }
+
+    applyWebToggle();
+
+    function fileLabel(file) {
+      if (!file) return { name: '', type: 'FILE' };
+      const name = file.name || 'upload';
+      const t = (file.type || '').toLowerCase();
+      if (t.startsWith('image/')) return { name, type: 'IMAGE' };
+      const idx = name.lastIndexOf('.');
+      const ext = idx !== -1 ? name.slice(idx + 1).toUpperCase() : 'FILE';
+      return { name, type: ext || 'FILE' };
+    }
+
+    function showAttachment(file) {
+      if (!attachBar || !attachName || !attachType) return;
+      if (!file) {
+        attachBar.style.display = 'none';
+        attachName.textContent = '';
+        attachType.textContent = 'FILE';
+        return;
+      }
+      const lbl = fileLabel(file);
+      attachName.textContent = lbl.name;
+      attachType.textContent = lbl.type;
+      attachBar.style.display = 'block';
+    }
+
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', () => fileInput.click());
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        showAttachment(f);
+      });
+    }
+
+    if (attachClear && fileInput) {
+      attachClear.addEventListener('click', () => {
+        fileInput.value = '';
+        showAttachment(null);
+        input && input.focus();
+      });
+    }
+
+    function autoResize() {
+      if (!input) return;
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+    }
+
+    input.addEventListener('input', autoResize);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    function scrollToBottom() {
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function appendBubble(role, text, extraClass, html) {
+      const row = document.createElement('div');
+      row.className = `msgrow ${role} ${extraClass || ''}`.trim();
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+
+      const roleDiv = document.createElement('div');
+      roleDiv.className = 'role';
+      roleDiv.textContent = role === 'user' ? 'You' : 'Baymax-lite';
+
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'content';
+      if (role === 'assistant' && html) {
+        contentDiv.innerHTML = html;
+      } else {
+        contentDiv.textContent = text;
+      }
+
+      bubble.appendChild(roleDiv);
+      bubble.appendChild(contentDiv);
+      row.appendChild(bubble);
+      el.appendChild(row);
+      if (role === 'assistant' && typeof window.renderLatex === 'function') {
+        window.renderLatex(contentDiv);
+      }
+      scrollToBottom();
+      return row;
+    }
+
+    function appendTyping() {
+      const row = document.createElement('div');
+      row.className = 'msgrow assistant typing';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      const roleDiv = document.createElement('div');
+      roleDiv.className = 'role';
+      roleDiv.textContent = 'Baymax-lite';
+      const dots = document.createElement('div');
+      dots.className = 'typing-dots';
+      dots.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      bubble.appendChild(roleDiv);
+      bubble.appendChild(dots);
+      row.appendChild(bubble);
+      el.appendChild(row);
+      scrollToBottom();
+      return row;
+    }
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const chatId = form.dataset.chatId;
+      const text = (input.value || '').trim();
+      if (!text) return;
+
+      const useWeb = !!useWebEnabled;
+
+      const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+      input.value = '';
+      autoResize();
+      input.focus();
+      if (sendBtn) sendBtn.disabled = true;
+      if (webToggle) webToggle.disabled = true;
+      if (attachBtn) attachBtn.disabled = true;
+      input.disabled = true;
+
+      appendBubble('user', text);
+      const typingRow = appendTyping();
+      const started = performance.now();
+
+      try {
+        let resp;
+        if (file) {
+          const fd = new FormData();
+          fd.append('message', text);
+          fd.append('use_web', useWeb ? '1' : '0');
+          fd.append('file', file);
+          resp = await fetch(`/api/revision/${chatId}/send`, { method: 'POST', body: fd });
+        } else {
+          resp = await fetch(`/api/revision/${chatId}/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, use_web: useWeb })
+          });
+        }
+
+        const data = await resp.json().catch(() => ({}));
+
+        const elapsed = performance.now() - started;
+        if (elapsed < 1000) {
+          await wait(1000 - elapsed);
+        }
+
+        typingRow.remove();
+
+        if (!resp.ok || !data.ok) {
+          appendBubble('assistant', data.error || 'Sorry, something went wrong.');
+          return;
+        }
+
+        appendBubble('assistant', data.reply || '(no response)', '', data.reply_html || '');
+      } catch (err) {
+        const elapsed = performance.now() - started;
+        if (elapsed < 1000) {
+          await wait(1000 - elapsed);
+        }
+        typingRow.remove();
+        appendBubble('assistant', 'Sorry, I could not reach the server.');
+      } finally {
+        if (sendBtn) sendBtn.disabled = false;
+        if (webToggle) webToggle.disabled = false;
+        if (attachBtn) attachBtn.disabled = false;
+        input.disabled = false;
+        if (fileInput) fileInput.value = '';
+        if (typeof showAttachment === 'function') showAttachment(null);
+        input.focus();
+      }
+    });
+
+    async function initGuideIfNeeded() {
+      if (!form) return;
+      if (form.dataset.autoInit !== '1') return;
+      // Prevent duplicate init attempts.
+      form.dataset.autoInit = '0';
+
+      const chatId = form.dataset.chatId;
+      const typingRow = appendTyping();
+      const started = performance.now();
+
+      try {
+        const resp = await fetch(`/api/revision/${chatId}/init`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+
+        const elapsed = performance.now() - started;
+        if (elapsed < 1000) {
+          await wait(1000 - elapsed);
+        }
+
+        typingRow.remove();
+        if (resp.ok && data && data.ok && data.reply_html) {
+          appendBubble('assistant', data.reply || '(no response)', '', data.reply_html);
+        }
+      } catch (err) {
+        const elapsed = performance.now() - started;
+        if (elapsed < 1000) {
+          await wait(1000 - elapsed);
+        }
+        typingRow.remove();
+      }
+    }
+
+    initGuideIfNeeded();
+    input.focus();
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,786 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/quiz.css') }}" />{% endblock %}
+{% block body %}
+<div class="quiz-wrap">
+
+  <!-- ─── Setup Panel ─── -->
+  <div class="quiz-setup" id="quizSetup">
+    <div class="quiz-setup-card">
+      <h2 class="quiz-setup-title">Quiz</h2>
+      <p class="muted" style="margin-bottom:24px;">Test your knowledge on any topic. Score 70 % or above to earn <strong>500 coins</strong>!</p>
+
+      <div class="quiz-form-group">
+        <label class="quiz-label">Subject</label>
+        <select id="quizSubject" class="quiz-select">
+          <option value="">Select a subject</option>
+          {% for s in subjects %}
+            <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Test Mode (shown when subject has modes) -->
+      <div class="quiz-form-group" id="testModeGroup" style="display:none;">
+        <label class="quiz-label">Test Type</label>
+        <div class="quiz-mode-row" id="testModeRow"></div>
+      </div>
+
+      <div class="quiz-form-group">
+        <label class="quiz-label">Topic</label>
+        <select id="quizTopic" class="quiz-select" disabled>
+          <option value="">Select a subject first</option>
+        </select>
+      </div>
+
+      <div class="quiz-form-group">
+        <label class="quiz-label">Difficulty</label>
+        <div class="quiz-diff-row">
+          <button type="button" class="quiz-diff-btn active" data-diff="basic">Basic</button>
+          <button type="button" class="quiz-diff-btn" data-diff="intermediate">Intermediate</button>
+          <button type="button" class="quiz-diff-btn" data-diff="advanced">Advanced</button>
+        </div>
+      </div>
+
+      <button type="button" class="quiz-generate-btn" id="quizGenerateBtn" disabled>
+        <span id="genBtnText">Generate Quiz</span>
+        <span id="genBtnSpinner" class="quiz-spinner" style="display:none;"></span>
+      </button>
+
+      <!-- Past Attempts -->
+      {% if attempts %}
+      <div class="quiz-history">
+        <h3 class="quiz-history-title">Recent Quizzes</h3>
+        {% for a in attempts %}
+          <div class="quiz-history-item {% if a.completed_at %}{% if a.score is not none and a.total and (a.score / a.total * 100) >= 70 %}pass{% else %}fail{% endif %}{% endif %}" onclick="loadPastQuiz({{ a.id }})" style="cursor:pointer;">
+            <div class="quiz-history-info">
+              <span class="quiz-history-subject">{{ a.subject }} – {{ a.topic }}</span>
+              <span class="quiz-history-meta">{{ a.difficulty | capitalize }} &bull; {{ a.created_at[:10] }}</span>
+            </div>
+            {% if a.completed_at and a.score is not none %}
+              <div class="quiz-history-score">{{ a.score }}/{{ a.total }}{% if a.coins_awarded %} <span class="coin-mini">+{{ a.coins_awarded }}🪙</span>{% endif %}</div>
+            {% else %}
+              <div class="quiz-history-score muted">Incomplete</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ─── Quiz Panel (standard / reading / mc_only / set_texts) ─── -->
+  <div class="quiz-panel" id="quizPanel" style="display:none;">
+    <div class="quiz-header">
+      <div class="quiz-header-left">
+        <h2 id="quizTitle" class="quiz-title"></h2>
+        <span id="quizMeta" class="quiz-meta muted"></span>
+      </div>
+      <div class="quiz-header-right">
+        <span class="quiz-progress" id="quizProgress">0 / 0</span>
+      </div>
+    </div>
+
+    <!-- Reading passage block (shown for reading mode) -->
+    <div class="quiz-passage-block" id="quizPassageBlock" style="display:none;">
+      <div class="quiz-passage-label">📖 Reading Passage</div>
+      <div class="quiz-passage-text" id="quizPassageText"></div>
+    </div>
+
+    <div class="quiz-questions" id="quizQuestions"></div>
+
+    <div class="quiz-actions">
+      <button type="button" class="quiz-submit-btn" id="quizSubmitBtn" disabled>Submit Quiz</button>
+      <button type="button" class="quiz-back-btn" id="quizBackBtn" style="display:none;">Back to Setup</button>
+    </div>
+  </div>
+
+  <!-- ─── Writing Panel ─── -->
+  <div class="quiz-writing" id="quizWriting" style="display:none;">
+    <div class="quiz-header">
+      <div class="quiz-header-left">
+        <h2 id="writingTitle" class="quiz-title"></h2>
+        <span id="writingMeta" class="quiz-meta muted"></span>
+      </div>
+    </div>
+
+    <div class="quiz-writing-prompt-card" id="writingPromptCard">
+      <div class="quiz-writing-prompt-label">✍️ Writing Task</div>
+      <div class="quiz-writing-prompt-text" id="writingPromptText"></div>
+      <div class="quiz-writing-prompt-info" id="writingPromptInfo"></div>
+    </div>
+
+    <div class="quiz-form-group" style="margin-top:16px;">
+      <label class="quiz-label" id="writingWordCount">0 words</label>
+      <textarea id="writingTextarea" class="quiz-writing-textarea" rows="16" placeholder="Write your essay here…"></textarea>
+    </div>
+
+    <div class="quiz-actions">
+      <button type="button" class="quiz-submit-btn" id="writingSubmitBtn">Submit Writing</button>
+    </div>
+  </div>
+
+  <!-- ─── Results Panel ─── -->
+  <div class="quiz-results" id="quizResults" style="display:none;">
+    <div class="quiz-results-card">
+      <h2 class="quiz-results-title" id="resultsTitle">Quiz Results</h2>
+      <div class="quiz-score-ring" id="scoreRing">
+        <svg width="160" height="160" viewBox="0 0 160 160">
+          <circle cx="80" cy="80" r="65" fill="none" stroke="var(--border)" stroke-width="12" />
+          <circle id="scoreArc" cx="80" cy="80" r="65" fill="none" stroke="var(--primary, #625CCE)" stroke-width="12" stroke-linecap="round" stroke-dasharray="408.4" stroke-dashoffset="408.4" style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset 1s ease;" />
+        </svg>
+        <div class="quiz-score-text">
+          <span id="scoreNum" class="quiz-score-num">0</span>
+          <span class="quiz-score-slash">/</span>
+          <span id="scoreTotal" class="quiz-score-total">0</span>
+        </div>
+      </div>
+      <div id="scorePct" class="quiz-score-pct"></div>
+      <div id="coinReward" class="quiz-coin-reward" style="display:none;"></div>
+    </div>
+
+    <!-- Writing grading feedback -->
+    <div class="quiz-writing-feedback" id="writingFeedback" style="display:none;"></div>
+
+    <!-- Question review -->
+    <div class="quiz-review" id="quizReview"></div>
+
+    <div class="quiz-actions" style="margin-top:24px;">
+      <button type="button" class="quiz-generate-btn" id="quizRetryBtn">Take Another Quiz</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const TOPICS = {{ topics_by_subject | tojson }};
+  const TEST_MODES = {{ test_modes_by_subject | tojson }};
+  const SET_TEXTS = {{ chinese_set_texts | tojson }};
+  const FORM = {{ form_number | tojson }};
+
+  const subjectSel    = document.getElementById('quizSubject');
+  const topicSel      = document.getElementById('quizTopic');
+  const testModeGroup = document.getElementById('testModeGroup');
+  const testModeRow   = document.getElementById('testModeRow');
+  const diffBtns      = document.querySelectorAll('.quiz-diff-btn');
+  const genBtn        = document.getElementById('quizGenerateBtn');
+  const genText       = document.getElementById('genBtnText');
+  const genSpinner    = document.getElementById('genBtnSpinner');
+
+  const setupDiv   = document.getElementById('quizSetup');
+  const panelDiv   = document.getElementById('quizPanel');
+  const writingDiv = document.getElementById('quizWriting');
+  const resultsDiv = document.getElementById('quizResults');
+
+  let selectedDiff = 'basic';
+  let selectedMode = 'standard';
+  let currentQuiz  = null;
+
+  // ─── Subject change → update modes + topics ───
+  subjectSel.addEventListener('change', () => {
+    const subj = subjectSel.value;
+
+    // Update test modes
+    const modes = TEST_MODES[subj] || [];
+    testModeRow.innerHTML = '';
+    if (modes.length > 0) {
+      testModeGroup.style.display = '';
+      modes.forEach((m, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'quiz-mode-btn' + (i === 0 ? ' active' : '');
+        btn.dataset.mode = m.value;
+        btn.textContent = m.label;
+        btn.addEventListener('click', () => {
+          testModeRow.querySelectorAll('.quiz-mode-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          selectedMode = m.value;
+          refreshTopics();
+        });
+        testModeRow.appendChild(btn);
+      });
+      selectedMode = modes[0].value;
+    } else {
+      testModeGroup.style.display = 'none';
+      selectedMode = 'standard';
+    }
+
+    refreshTopics();
+  });
+
+  function refreshTopics() {
+    const subj = subjectSel.value;
+    topicSel.innerHTML = '';
+    if (!subj) {
+      topicSel.innerHTML = '<option value="">Select a subject first</option>';
+      topicSel.disabled = true;
+      updateGenBtn();
+      return;
+    }
+
+    // For Chinese set_texts mode, use the set texts list
+    if (subj === 'Chinese' && selectedMode === 'set_texts') {
+      if (SET_TEXTS.length === 0) {
+        topicSel.innerHTML = '<option value="">No set texts available</option>';
+        topicSel.disabled = true;
+      } else {
+        topicSel.innerHTML = '<option value="">Select a set text</option>';
+        SET_TEXTS.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t;
+          o.textContent = t;
+          topicSel.appendChild(o);
+        });
+        topicSel.disabled = false;
+      }
+      updateGenBtn();
+      return;
+    }
+
+    // English writing still needs an explicit theme selection.
+    if (selectedMode === 'writing' && subj !== 'English') {
+      topicSel.innerHTML = '<option value="General Writing">General Writing</option>';
+      topicSel.disabled = false;
+      updateGenBtn();
+      return;
+    }
+
+    const byForm = TOPICS[subj] || {};
+    const topics = byForm[FORM] || byForm['4'] || [];
+    if (topics.length === 0) {
+      topicSel.innerHTML = '<option value="">No topics available</option>';
+      topicSel.disabled = true;
+    } else {
+      topicSel.innerHTML = '<option value="">Select a topic</option>';
+      topics.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t;
+        topicSel.appendChild(o);
+      });
+      topicSel.disabled = false;
+    }
+    updateGenBtn();
+  }
+
+  topicSel.addEventListener('change', updateGenBtn);
+
+  // ─── Auto-fill from URL params ───
+  const urlParams = new URLSearchParams(window.location.search);
+  const paramSubject = urlParams.get('subject');
+  const paramTopic = urlParams.get('topic');
+  if (paramSubject) {
+    for (let i = 0; i < subjectSel.options.length; i++) {
+      if (subjectSel.options[i].value.toLowerCase() === paramSubject.toLowerCase()) {
+        subjectSel.value = subjectSel.options[i].value;
+        subjectSel.dispatchEvent(new Event('change'));
+        break;
+      }
+    }
+    if (paramTopic) {
+      setTimeout(() => {
+        for (let i = 0; i < topicSel.options.length; i++) {
+          if (topicSel.options[i].value.toLowerCase() === paramTopic.toLowerCase()) {
+            topicSel.value = topicSel.options[i].value;
+            topicSel.dispatchEvent(new Event('change'));
+            break;
+          }
+        }
+      }, 50);
+    }
+  }
+
+  // ─── Difficulty selector ───
+  diffBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      diffBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedDiff = btn.dataset.diff;
+    });
+  });
+
+  function updateGenBtn() {
+    genBtn.disabled = !subjectSel.value || !topicSel.value;
+  }
+
+  // ─── Generate quiz ───
+  genBtn.addEventListener('click', async () => {
+    const subject = subjectSel.value;
+    const topic   = topicSel.value;
+    if (!subject || !topic) return;
+
+    genBtn.disabled = true;
+    genText.textContent = 'Generating…';
+    genSpinner.style.display = 'inline-block';
+
+    try {
+      const resp = await fetch('/api/quiz/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, topic, difficulty: selectedDiff, test_mode: selectedMode }),
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        alert(data.error || 'Failed to generate quiz.');
+        return;
+      }
+
+      if (data.mode === 'writing') {
+        currentQuiz = { quiz_id: data.quiz_id, mode: 'writing', prompt_data: data.prompt_data };
+        renderWritingMode(subject, topic, selectedDiff, data.prompt_data);
+      } else {
+        currentQuiz = { quiz_id: data.quiz_id, questions: data.questions, mode: selectedMode };
+        renderQuiz(subject, topic, selectedDiff);
+      }
+    } catch (err) {
+      alert('Network error. Please try again.');
+    } finally {
+      genBtn.disabled = false;
+      genText.textContent = 'Generate Quiz';
+      genSpinner.style.display = 'none';
+    }
+  });
+
+  // ─── Load past quiz ───
+  window.loadPastQuiz = async function(quiz_id) {
+    try {
+      const resp = await fetch('/api/quiz/' + quiz_id);
+      const data = await resp.json();
+      if (!data.ok) { alert(data.error || 'Failed to load quiz.'); return; }
+      if (data.is_completed) {
+        if (data.mode === 'writing') {
+          renderWritingResults(data);
+        } else {
+          renderResults(data);
+        }
+      } else {
+        if (data.mode === 'writing') {
+          currentQuiz = { quiz_id: data.quiz_id, mode: 'writing', prompt_data: data.prompt_data };
+          renderWritingMode(data.subject, data.topic, data.difficulty, data.prompt_data);
+        } else {
+          currentQuiz = { quiz_id: data.quiz_id, questions: data.questions, mode: 'standard' };
+          renderQuiz(data.subject, data.topic, data.difficulty);
+        }
+      }
+    } catch (err) { alert('Network error. Please try again.'); }
+  };
+
+  // ─── Render writing mode ───
+  function renderWritingMode(subject, topic, diff, promptData) {
+    setupDiv.style.display = 'none';
+    panelDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    writingDiv.style.display = 'block';
+
+    currentQuiz = { ...(currentQuiz || {}), subject: subject, mode: 'writing', prompt_data: promptData };
+
+    const writingSubmitBtn = document.getElementById('writingSubmitBtn');
+    writingSubmitBtn.disabled = false;
+    writingSubmitBtn.textContent = 'Submit Writing';
+
+    document.getElementById('writingTitle').textContent = subject + ' – Writing';
+    document.getElementById('writingMeta').textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
+    document.getElementById('writingPromptText').textContent = promptData.prompt || 'Write an essay.';
+
+    const infoLines = [];
+    if (promptData.genre) infoLines.push('Genre: ' + promptData.genre);
+    if (promptData.word_limit) infoLines.push('Target length: ' + promptData.word_limit);
+    if (promptData.instructions) infoLines.push(promptData.instructions);
+    document.getElementById('writingPromptInfo').textContent = infoLines.join(' · ');
+
+    document.getElementById('writingTextarea').value = '';
+    updateWordCount();
+  }
+
+  // ─── Word count ───
+  const writingTextarea = document.getElementById('writingTextarea');
+  writingTextarea.addEventListener('input', updateWordCount);
+
+  function countChineseWritingUnits(text) {
+    const matches = text.match(/[\u3400-\u4dbf\u4e00-\u9fff]|[A-Za-z0-9]+/g);
+    return matches ? matches.length : 0;
+  }
+
+  function updateWordCount() {
+    const text = writingTextarea.value.trim();
+    const subject = ((currentQuiz && currentQuiz.subject) || '').trim();
+    if (subject === 'Chinese') {
+      const count = countChineseWritingUnits(text);
+      document.getElementById('writingWordCount').textContent = count + ' 字';
+      return;
+    }
+
+    const count = text ? text.split(/\s+/).length : 0;
+    document.getElementById('writingWordCount').textContent = count + ' words';
+  }
+
+  // ─── Submit writing ───
+  document.getElementById('writingSubmitBtn').addEventListener('click', async () => {
+    if (!currentQuiz || currentQuiz.mode !== 'writing') return;
+    const text = writingTextarea.value.trim();
+    if (!text) { alert('Please write something before submitting.'); return; }
+
+    const btn = document.getElementById('writingSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Grading…';
+
+    try {
+      const resp = await fetch('/api/quiz/' + currentQuiz.quiz_id + '/submit-writing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text }),
+      });
+      const data = await resp.json();
+      if (!data.ok) { alert(data.error || 'Failed to grade writing.'); btn.disabled = false; btn.textContent = 'Submit Writing'; return; }
+      renderWritingResults(data);
+    } catch (err) {
+      alert('Network error. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Submit Writing';
+    }
+  });
+
+  // ─── Render writing results ───
+  function renderWritingResults(data) {
+    setupDiv.style.display = 'none';
+    panelDiv.style.display = 'none';
+    writingDiv.style.display = 'none';
+    resultsDiv.style.display = 'block';
+
+    const g = data.grading || {};
+    const pct = data.percent || g.score || 0;
+    const passed = pct >= 70;
+    // Detect Chinese: explicit subject flag OR presence of detailed_scores (Chinese rubric)
+    const isChinese = (data.subject || '').trim() === 'Chinese' || (!!g.detailed_scores && !g.band_scores);
+
+    document.getElementById('scoreNum').textContent = data.score || g.score || 0;
+    document.getElementById('scoreTotal').textContent = data.total || 100;
+    document.getElementById('scorePct').textContent = pct + '%';
+    document.getElementById('scorePct').className = 'quiz-score-pct ' + (passed ? 'pass' : 'fail');
+    document.getElementById('resultsTitle').textContent = (g.level || '') + (passed ? ' 🎉' : '');
+
+    const circumference = 408.4;
+    const offset = circumference - (circumference * pct / 100);
+    const arc = document.getElementById('scoreArc');
+    arc.style.stroke = passed ? '#22c55e' : '#ef4444';
+    setTimeout(() => { arc.style.strokeDashoffset = offset; }, 50);
+
+    const coinDiv = document.getElementById('coinReward');
+    if (data.coins_awarded > 0) {
+      coinDiv.textContent = '+' + data.coins_awarded + ' coins earned! 🪙';
+      coinDiv.style.display = 'block';
+    } else { coinDiv.style.display = 'none'; }
+
+    // Writing feedback panel
+    const fbDiv = document.getElementById('writingFeedback');
+    fbDiv.style.display = 'block';
+    document.getElementById('quizReview').innerHTML = '';
+
+    // Labels differ by subject
+    const L = isChinese
+      ? { title: '📝 閱卷員評語', comment: '整體評語', strengths: '✅ 優點', improvements: '⚠️ 改善建議', suggestions: '💡 提升方法', ceiling: '📊 等級天花板分析', sample: '✨ 5*示範段落' }
+      : { title: '📝 Examiner Feedback', comment: 'Overall Comment', strengths: '✅ Strengths', improvements: '⚠️ Areas for Improvement', suggestions: '💡 Suggestions', ceiling: '📊 Level Ceiling Analysis', sample: '✨ Band 7 / 5* Sample Paragraph' };
+
+    let fbHtml = '<h3 class="quiz-writing-fb-title">' + L.title + '</h3>';
+
+    // Band scores (English only)
+    if (!isChinese && g.band_scores) {
+      fbHtml += '<div class="quiz-writing-bands">';
+      for (const [k, v] of Object.entries(g.band_scores)) {
+        fbHtml += '<div class="quiz-writing-band"><span class="quiz-writing-band-label">' + escapeHtml(k) + '</span><span class="quiz-writing-band-score">' + v + '/7</span></div>';
+      }
+      fbHtml += '</div>';
+    }
+
+    // Chinese detailed scores (Chinese only)
+    if (isChinese && g.detailed_scores) {
+      fbHtml += '<div class="quiz-writing-bands">';
+      const labels = {content:'內容',expression:'表達',structure:'結構',punctuation:'標點字體'};
+      const maxes = {content:40,expression:30,structure:20,punctuation:10};
+      for (const [k, v] of Object.entries(g.detailed_scores)) {
+        fbHtml += '<div class="quiz-writing-band"><span class="quiz-writing-band-label">' + (labels[k]||k) + '</span><span class="quiz-writing-band-score">' + v + '/' + (maxes[k]||'?') + '</span></div>';
+      }
+      fbHtml += '</div>';
+    }
+
+    // Overall comment
+    if (g.overall_comment) {
+      fbHtml += '<div class="quiz-writing-section"><h4>' + L.comment + '</h4><p>' + escapeHtml(g.overall_comment) + '</p></div>';
+    }
+
+    // Strengths
+    if (g.strengths && g.strengths.length) {
+      fbHtml += '<div class="quiz-writing-section"><h4>' + L.strengths + '</h4><ul>';
+      g.strengths.forEach(function(s) { fbHtml += '<li>' + escapeHtml(s) + '</li>'; });
+      fbHtml += '</ul></div>';
+    }
+
+    // Improvements
+    if (g.improvements && g.improvements.length) {
+      fbHtml += '<div class="quiz-writing-section"><h4>' + L.improvements + '</h4><ul>';
+      g.improvements.forEach(function(s) { fbHtml += '<li>' + escapeHtml(s) + '</li>'; });
+      fbHtml += '</ul></div>';
+    }
+
+    // Suggestions
+    if (g.suggestions && g.suggestions.length) {
+      fbHtml += '<div class="quiz-writing-section"><h4>' + L.suggestions + '</h4><ul>';
+      g.suggestions.forEach(function(s) { fbHtml += '<li>' + escapeHtml(s) + '</li>'; });
+      fbHtml += '</ul></div>';
+    }
+
+    // Level ceiling
+    if (g.level_ceiling) {
+      fbHtml += '<div class="quiz-writing-section"><h4>' + L.ceiling + '</h4><p>' + escapeHtml(g.level_ceiling) + '</p></div>';
+    }
+
+    // Sample paragraph
+    if (g.sample_paragraph) {
+      fbHtml += '<div class="quiz-writing-section quiz-writing-sample"><h4>' + L.sample + '</h4><p>' + escapeHtml(g.sample_paragraph) + '</p></div>';
+    }
+
+    fbDiv.innerHTML = fbHtml;
+  }
+
+  // ─── Render quiz questions (standard/reading/mc_only/set_texts) ───
+  function renderQuiz(subject, topic, diff) {
+    setupDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    writingDiv.style.display = 'none';
+    panelDiv.style.display = 'block';
+
+    document.getElementById('quizTitle').textContent = subject + ' – ' + topic;
+
+    // Check for passage (reading mode)
+    const passageBlock = document.getElementById('quizPassageBlock');
+    var realQuestions = currentQuiz.questions;
+    const passageQ = currentQuiz.questions.find(function(q) { return q.type === 'passage'; });
+    if (passageQ) {
+      passageBlock.style.display = 'block';
+      document.getElementById('quizPassageText').innerHTML = passageQ.question;
+      realQuestions = currentQuiz.questions.filter(function(q) { return q.type !== 'passage'; });
+    } else {
+      passageBlock.style.display = 'none';
+    }
+    currentQuiz._realQuestions = realQuestions;
+
+    document.getElementById('quizMeta').textContent = diff.charAt(0).toUpperCase() + diff.slice(1) + ' · ' + realQuestions.length + ' questions';
+    document.getElementById('quizProgress').textContent = '0 / ' + realQuestions.length;
+
+    const container = document.getElementById('quizQuestions');
+    container.innerHTML = '';
+
+    realQuestions.forEach(function(q, idx) {
+      const card = document.createElement('div');
+      card.className = 'quiz-q-card';
+      card.dataset.qid = q.id;
+
+      let badge = '';
+      if (q.type === 'mcq') badge = 'Multiple Choice';
+      else if (q.type === 'true_false') badge = 'True / False';
+      else badge = 'Short Answer';
+
+      let body = '<div class="quiz-q-head">'
+        + '<span class="quiz-q-num">Q' + (idx + 1) + '</span>'
+        + '<span class="quiz-q-badge">' + badge + '</span>'
+        + '<button type="button" class="quiz-hint-btn" data-hint="' + escapeAttr(q.hint || '') + '" title="Show hint">💡 Hint</button>'
+        + '</div>'
+        + '<div class="quiz-q-text">' + q.question + '</div>';
+
+      if (q.type === 'mcq' || q.type === 'true_false') {
+        const opts = q.options || [];
+        body += '<div class="quiz-q-options">';
+        opts.forEach(function(opt) {
+          body += '<label class="quiz-opt">'
+            + '<input type="radio" name="q_' + q.id + '" value="' + escapeAttr(opt) + '" />'
+            + '<span class="quiz-opt-label">' + opt + '</span>'
+            + '</label>';
+        });
+        body += '</div>';
+      } else {
+        body += '<textarea class="quiz-short-input" name="q_' + q.id + '" placeholder="Type your answer…" rows="3"></textarea>';
+      }
+
+      body += '<div class="quiz-hint-box" data-for="' + q.id + '" style="display:none;">💡 ' + (q.hint || 'No hint available.') + '</div>';
+      card.innerHTML = body;
+      container.appendChild(card);
+    });
+
+    if (window.renderLatex) window.renderLatex(container);
+    if (passageQ && window.renderLatex) window.renderLatex(passageBlock);
+
+    container.querySelectorAll('.quiz-hint-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const card = btn.closest('.quiz-q-card');
+        const hintBox = card.querySelector('.quiz-hint-box');
+        hintBox.style.display = hintBox.style.display === 'none' ? 'block' : 'none';
+      });
+    });
+
+    container.addEventListener('change', updateProgress);
+    container.addEventListener('input', updateProgress);
+
+    document.getElementById('quizSubmitBtn').disabled = false;
+    document.getElementById('quizSubmitBtn').style.display = '';
+    document.getElementById('quizBackBtn').style.display = 'none';
+  }
+
+  function updateProgress() {
+    if (!currentQuiz || !currentQuiz._realQuestions) return;
+    let answered = 0;
+    currentQuiz._realQuestions.forEach(function(q) {
+      if (getAnswer(q)) answered++;
+    });
+    document.getElementById('quizProgress').textContent = answered + ' / ' + currentQuiz._realQuestions.length;
+  }
+
+  function getAnswer(q) {
+    if (q.type === 'mcq' || q.type === 'true_false') {
+      const checked = document.querySelector('input[name="q_' + q.id + '"]:checked');
+      return checked ? checked.value : '';
+    } else {
+      const inp = document.querySelector('[name="q_' + q.id + '"]');
+      return inp ? inp.value.trim() : '';
+    }
+  }
+
+  // ─── Submit quiz ───
+  document.getElementById('quizSubmitBtn').addEventListener('click', async () => {
+    if (!currentQuiz || !currentQuiz._realQuestions) return;
+
+    const answers = {};
+    let anyAnswered = false;
+    currentQuiz._realQuestions.forEach(function(q) {
+      const a = getAnswer(q);
+      answers[String(q.id)] = a;
+      if (a) anyAnswered = true;
+    });
+    if (!anyAnswered) { alert('Please answer at least one question before submitting.'); return; }
+
+    const submitBtn = document.getElementById('quizSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting…';
+
+    try {
+      const resp = await fetch('/api/quiz/' + currentQuiz.quiz_id + '/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: answers }),
+      });
+      const data = await resp.json();
+      if (!data.ok) { alert(data.error || 'Failed to submit quiz.'); submitBtn.disabled = false; submitBtn.textContent = 'Submit Quiz'; return; }
+      renderResults(data);
+    } catch (err) {
+      alert('Network error. Please try again.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Quiz';
+    }
+  });
+
+  // ─── Render standard results ───
+  function renderResults(data) {
+    setupDiv.style.display = 'none';
+    panelDiv.style.display = 'none';
+    writingDiv.style.display = 'none';
+    resultsDiv.style.display = 'block';
+    document.getElementById('writingFeedback').style.display = 'none';
+
+    const pct = data.percent || 0;
+    const passed = pct >= 70;
+
+    document.getElementById('scoreNum').textContent = data.score;
+    document.getElementById('scoreTotal').textContent = data.total;
+    document.getElementById('scorePct').textContent = pct + '%';
+    document.getElementById('scorePct').className = 'quiz-score-pct ' + (passed ? 'pass' : 'fail');
+    document.getElementById('resultsTitle').textContent = passed ? '🎉 Great job!' : 'Keep practising!';
+
+    const circumference = 408.4;
+    const offset = circumference - (circumference * pct / 100);
+    const arc = document.getElementById('scoreArc');
+    arc.style.stroke = passed ? '#22c55e' : '#ef4444';
+    setTimeout(function() { arc.style.strokeDashoffset = offset; }, 50);
+
+    const coinDiv = document.getElementById('coinReward');
+    if (data.coins_awarded > 0) {
+      coinDiv.textContent = '+' + data.coins_awarded + ' coins earned! 🪙';
+      coinDiv.style.display = 'block';
+    } else { coinDiv.style.display = 'none'; }
+
+    const reviewDiv = document.getElementById('quizReview');
+    reviewDiv.innerHTML = '';
+    (data.results || []).forEach(function(r, idx) {
+      if (r.type === 'passage') return;
+      const card = document.createElement('div');
+      const status = r.status || (r.is_correct ? 'correct' : 'wrong');
+      const marksAwarded = Number(r.marks_awarded != null ? r.marks_awarded : (r.is_correct ? 1 : 0));
+      const maxMarks = Number(r.max_marks != null ? r.max_marks : 1);
+      let badgeText = '✗ Wrong';
+      if (status === 'correct') badgeText = '✓ Correct';
+      else if (status === 'partial') badgeText = '△ Partially Correct';
+
+      card.className = 'quiz-review-card ' + status;
+
+      let html = '<div class="quiz-q-head">'
+        + '<span class="quiz-q-num">Q' + (idx + 1) + '</span>'
+        + '<span class="quiz-review-badge ' + status + '">' + badgeText + '</span>'
+        + '<span class="quiz-mark-chip">' + marksAwarded + '/' + maxMarks + ' mark' + (maxMarks === 1 ? '' : 's') + '</span>'
+        + '</div>'
+        + '<div class="quiz-q-text">' + r.question + '</div>';
+
+      if (r.options) {
+        html += '<div class="quiz-q-options review">';
+        r.options.forEach(function(opt) {
+          let cls = '';
+          if (opt === r.correct_answer) cls = 'correct-opt';
+          else if (opt === r.student_answer && !r.is_correct) cls = 'wrong-opt';
+          html += '<div class="quiz-opt-review ' + cls + '">'
+            + '<span>' + opt + '</span>'
+            + (opt === r.correct_answer ? '<span class="quiz-check">✓</span>' : '')
+            + (opt === r.student_answer && !r.is_correct ? '<span class="quiz-cross">✗</span>' : '')
+            + '</div>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div class="quiz-answer-compare">'
+          + '<div><strong>Your answer:</strong> ' + (escapeHtml(r.student_answer || '') || '<em>No answer</em>') + '</div>'
+          + '<div><strong>Correct answer:</strong> ' + escapeHtml(r.correct_answer || '') + '</div>'
+          + '</div>';
+      }
+
+      if (r.grading_comment) {
+        html += '<div class="quiz-feedback">🤖 ' + escapeHtml(r.grading_comment) + '</div>';
+      }
+      html += '<div class="quiz-explanation">📖 ' + r.explanation + '</div>';
+      card.innerHTML = html;
+      reviewDiv.appendChild(card);
+    });
+
+    if (window.renderLatex) window.renderLatex(resultsDiv);
+  }
+
+  // ─── Back / Retry ───
+  document.getElementById('quizRetryBtn').addEventListener('click', resetToSetup);
+
+  function resetToSetup() {
+    panelDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    writingDiv.style.display = 'none';
+    setupDiv.style.display = 'flex';
+    currentQuiz = null;
+    document.getElementById('scoreArc').style.strokeDashoffset = 408.4;
+    document.getElementById('writingFeedback').style.display = 'none';
+    document.getElementById('quizPassageBlock').style.display = 'none';
+    document.getElementById('writingSubmitBtn').disabled = false;
+    document.getElementById('writingSubmitBtn').textContent = 'Submit Writing';
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function escapeHtml(s) {
+    var div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+})();
+</script>
+{% endblock %}

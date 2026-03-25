@@ -1,0 +1,722 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/teacher.css') }}" />{% endblock %}
+{% block body %}
+<div class="page">
+  <h1>Teacher dashboard</h1>
+  <div class="muted">Students who signed up</div>
+
+  <div class="card" style="overflow:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>id</th>
+          <th>email</th>
+          <th>name</th>
+          <th>class</th>
+          <th>interests</th>
+          <th>created_at</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in students %}
+          <tr>
+            <td>{{ s.id }}</td>
+            <td>{{ s.email }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.class_level }}</td>
+            <td>{{ s.interests_json }}</td>
+            <td>{{ s.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 style="margin-top:18px;">Deadlines & tasks</h2>
+  <div class="muted">Add homework/quizzes/tests/exams for a target class.</div>
+
+  <div class="card">
+    <form method="POST" action="{{ url_for('teacher_add_assignment') }}">
+      <div class="row row-tight">
+        <div>
+          <label>Type</label>
+          <select name="item_type" required>
+            <option value="homework">homework</option>
+            <option value="quiz">quiz</option>
+            <option value="test">test</option>
+            <option value="exam">exam</option>
+          </select>
+        </div>
+        <div>
+          <label>Form</label>
+          <select name="form_number" id="formNumber" required>
+            <option value="1">Form 1</option>
+            <option value="2">Form 2</option>
+            <option value="3">Form 3</option>
+            <option value="4">Form 4</option>
+            <option value="5">Form 5</option>
+            <option value="6">Form 6</option>
+          </select>
+        </div>
+        <div>
+          <label>Class (optional)</label>
+          <select name="class_letter">
+            <option value="">All classes</option>
+            <option value="A">Class A</option>
+            <option value="B">Class B</option>
+            <option value="C">Class C</option>
+            <option value="D">Class D</option>
+            <option value="E">Class E</option>
+            <option value="F">Class F</option>
+          </select>
+        </div>
+        <div>
+          <label>Subject group</label>
+          <select name="subject_group" id="subjectGroup" required>
+            <option value="core">Core</option>
+            <option value="elective">Elective</option>
+          </select>
+        </div>
+        <div>
+          <label>Subject</label>
+          <select name="subject" id="subjectSelect" required></select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 10px; grid-template-columns: 1fr 2fr 1fr;">
+        <div>
+          <label>Date / deadline</label>
+          <input name="deadline" id="deadlineInput" type="date" required style="position:absolute; opacity:0; width:1px; height:1px; pointer-events:none;" />
+          <button type="button" id="deadlineBtn" style="width:100%; margin-top:0;">Select date</button>
+          <div class="muted" id="deadlineHint" style="margin-top:6px;">No date selected</div>
+        </div>
+        <div>
+          <label>Scope (optional)</label>
+          <input type="hidden" name="scope" id="scopeValue" />
+          <input id="scopeText" placeholder="e.g. Chapter 1-3" />
+          <div id="scopePhysicsBox" style="display:none; margin-top:8px;"></div>
+        </div>
+        <div></div>
+      </div>
+
+      <label>Tasks / description (optional)</label>
+      <input name="description" placeholder="e.g. Finish worksheet p.12 Q1-10" />
+
+      <button type="submit">Save</button>
+    </form>
+  </div>
+
+  <script>
+    (function() {
+      const core = [
+        { value: 'English', label: 'English' },
+        { value: 'Chinese', label: 'Chinese' },
+        { value: 'Math', label: 'Math' },
+      ];
+      const elective = [
+        { value: 'Phy', label: 'Phy' },
+        { value: 'Chem', label: 'Chem' },
+        { value: 'Bio', label: 'Bio' },
+        { value: 'M1', label: 'M1' },
+        { value: 'M2', label: 'M2' },
+        { value: 'Geog', label: 'Geog' },
+        { value: 'Econ', label: 'Econ' },
+        { value: 'BAFS', label: 'BAFS' },
+        { value: 'Chinese History', label: 'Chinese History' },
+        { value: 'History', label: 'History' },
+      ];
+
+      const group = document.getElementById('subjectGroup');
+      const select = document.getElementById('subjectSelect');
+      const formNumber = document.getElementById('formNumber');
+      const scopeValue = document.getElementById('scopeValue');
+      const scopeText = document.getElementById('scopeText');
+      const scopePhysicsBox = document.getElementById('scopePhysicsBox');
+
+      // HKDSE topic chips (kept high-level, Form 4–6 focus for electives).
+      // Keys must match the subject dropdown values.
+      const topicsBySubjectByForm = {
+        'Phy': {
+          '1': [
+            'Scientific Investigation',
+            'Energy',
+            'Matter',
+            'Electricity',
+            'Forces and Motion',
+            'Space Science',
+            'Light and Sound',
+            'Light and Colour',
+          ],
+          '2': [
+            'Scientific Investigation',
+            'Energy',
+            'Matter',
+            'Electricity',
+            'Forces and Motion',
+            'Space Science',
+            'Light and Sound',
+            'Light and Colour',
+          ],
+          '3': [
+            'Scientific Investigation',
+            'Energy',
+            'Heat and Gases',
+            'Electricity and Magnetism',
+            'Force and Motion',
+            'Astronomy and Space Science',
+            'Wave Motion',
+            'Medical Physics',
+          ],
+          '4': [
+            'Force and Motion',
+            'Work, Energy and Power',
+            'Thermal Physics',
+            'Electricity',
+            'Waves',
+            'Radioactivity',
+          ],
+          '5': [
+            'Force and Motion (Advanced)',
+            'Heat and Gases',
+            'Wave Motion (excluding Light)',
+            'Electricity and Magnetism',
+          ],
+          '6': [
+            'Wave Motion (Light)',
+            'Atomic Physics',
+            'Nuclear Physics',
+            'Medical Physics',
+            'Astronomy and Space Science',
+          ],
+        },
+
+        // Electives (Form 4–6)
+        'Chem': {
+          '4': [
+            'Atomic structure & periodicity',
+            'Bonding & structure',
+            'Mole concept & stoichiometry',
+            'Gases & gas laws',
+            'Energetics',
+            'Chemical kinetics',
+            'Chemical equilibrium',
+            'Acids & bases',
+            'Redox & electrochemistry',
+            'Organic chemistry (functional groups)',
+            'Polymers & materials',
+            'Analytical chemistry (basic)',
+          ],
+          '5': [
+            'Atomic structure & periodicity',
+            'Bonding & structure',
+            'Mole concept & stoichiometry',
+            'Gases & gas laws',
+            'Energetics',
+            'Chemical kinetics',
+            'Chemical equilibrium',
+            'Acids & bases',
+            'Redox & electrochemistry',
+            'Organic chemistry (functional groups)',
+            'Polymers & materials',
+            'Analytical chemistry (basic)',
+          ],
+          '6': [
+            'Atomic structure & periodicity',
+            'Bonding & structure',
+            'Mole concept & stoichiometry',
+            'Gases & gas laws',
+            'Energetics',
+            'Chemical kinetics',
+            'Chemical equilibrium',
+            'Acids & bases',
+            'Redox & electrochemistry',
+            'Organic chemistry (functional groups)',
+            'Polymers & materials',
+            'Analytical chemistry (basic)',
+          ],
+        },
+        'Bio': {
+          '4': [
+            'Cells & organisation',
+            'Biomolecules & enzymes',
+            'Nutrition & digestion',
+            'Gas exchange & transport',
+            'Respiration & photosynthesis',
+            'Homeostasis & regulation',
+            'Coordination (nervous/endocrine)',
+            'Reproduction & development',
+            'Genetics & inheritance',
+            'Evolution & biodiversity',
+            'Ecology & conservation',
+            'Health, microbes & immunity',
+          ],
+          '5': [
+            'Cells & organisation',
+            'Biomolecules & enzymes',
+            'Nutrition & digestion',
+            'Gas exchange & transport',
+            'Respiration & photosynthesis',
+            'Homeostasis & regulation',
+            'Coordination (nervous/endocrine)',
+            'Reproduction & development',
+            'Genetics & inheritance',
+            'Evolution & biodiversity',
+            'Ecology & conservation',
+            'Health, microbes & immunity',
+          ],
+          '6': [
+            'Cells & organisation',
+            'Biomolecules & enzymes',
+            'Nutrition & digestion',
+            'Gas exchange & transport',
+            'Respiration & photosynthesis',
+            'Homeostasis & regulation',
+            'Coordination (nervous/endocrine)',
+            'Reproduction & development',
+            'Genetics & inheritance',
+            'Evolution & biodiversity',
+            'Ecology & conservation',
+            'Health, microbes & immunity',
+          ],
+        },
+        'M1': {
+          '4': [
+            'Functions & graphs (advanced)',
+            'Limits & differentiation',
+            'Applications of differentiation',
+            'Integration basics',
+            'Applications of integration',
+            'Probability basics',
+            'Distributions (binomial/normal)',
+            'Statistics & inference (basic)',
+            'Regression & correlation',
+          ],
+          '5': [
+            'Functions & graphs (advanced)',
+            'Limits & differentiation',
+            'Applications of differentiation',
+            'Integration basics',
+            'Applications of integration',
+            'Probability basics',
+            'Distributions (binomial/normal)',
+            'Statistics & inference (basic)',
+            'Regression & correlation',
+          ],
+          '6': [
+            'Functions & graphs (advanced)',
+            'Limits & differentiation',
+            'Applications of differentiation',
+            'Integration basics',
+            'Applications of integration',
+            'Probability basics',
+            'Distributions (binomial/normal)',
+            'Statistics & inference (basic)',
+            'Regression & correlation',
+          ],
+        },
+        'M2': {
+          '4': [
+            'Functions & transformations',
+            'Sequences & series',
+            'Exponential & logarithmic functions',
+            'Trigonometry (functions & identities)',
+            'Differentiation (advanced)',
+            'Integration (advanced)',
+            'Vectors (2D/3D basics)',
+            'Matrices & linear systems (basic)',
+            'Complex numbers (basic)',
+          ],
+          '5': [
+            'Functions & transformations',
+            'Sequences & series',
+            'Exponential & logarithmic functions',
+            'Trigonometry (functions & identities)',
+            'Differentiation (advanced)',
+            'Integration (advanced)',
+            'Vectors (2D/3D basics)',
+            'Matrices & linear systems (basic)',
+            'Complex numbers (basic)',
+          ],
+          '6': [
+            'Functions & transformations',
+            'Sequences & series',
+            'Exponential & logarithmic functions',
+            'Trigonometry (functions & identities)',
+            'Differentiation (advanced)',
+            'Integration (advanced)',
+            'Vectors (2D/3D basics)',
+            'Matrices & linear systems (basic)',
+            'Complex numbers (basic)',
+          ],
+        },
+        'Geog': {
+          '4': [
+            'Map skills & spatial data',
+            'Weather & climate',
+            'River & slope processes',
+            'Coastal processes & management',
+            'Natural hazards & risk management',
+            'Urban environments & planning',
+            'Population change & migration',
+            'Economic development & globalisation',
+            'Resource management (water/energy/food)',
+            'Sustainable development',
+          ],
+          '5': [
+            'Map skills & spatial data',
+            'Weather & climate',
+            'River & slope processes',
+            'Coastal processes & management',
+            'Natural hazards & risk management',
+            'Urban environments & planning',
+            'Population change & migration',
+            'Economic development & globalisation',
+            'Resource management (water/energy/food)',
+            'Sustainable development',
+          ],
+          '6': [
+            'Map skills & spatial data',
+            'Weather & climate',
+            'River & slope processes',
+            'Coastal processes & management',
+            'Natural hazards & risk management',
+            'Urban environments & planning',
+            'Population change & migration',
+            'Economic development & globalisation',
+            'Resource management (water/energy/food)',
+            'Sustainable development',
+          ],
+        },
+        'Econ': {
+          '4': [
+            'Basic economic concepts',
+            'Demand, supply & elasticity',
+            'Firms: production, cost & revenue',
+            'Market structures & competition',
+            'Market failure & government intervention',
+            'National income & indicators',
+            'Fiscal & monetary policy',
+            'Inflation, unemployment & growth',
+            'International trade',
+            'Exchange rates & balance of payments',
+          ],
+          '5': [
+            'Basic economic concepts',
+            'Demand, supply & elasticity',
+            'Firms: production, cost & revenue',
+            'Market structures & competition',
+            'Market failure & government intervention',
+            'National income & indicators',
+            'Fiscal & monetary policy',
+            'Inflation, unemployment & growth',
+            'International trade',
+            'Exchange rates & balance of payments',
+          ],
+          '6': [
+            'Basic economic concepts',
+            'Demand, supply & elasticity',
+            'Firms: production, cost & revenue',
+            'Market structures & competition',
+            'Market failure & government intervention',
+            'National income & indicators',
+            'Fiscal & monetary policy',
+            'Inflation, unemployment & growth',
+            'International trade',
+            'Exchange rates & balance of payments',
+          ],
+        },
+        'BAFS': {
+          '4': [
+            'Business ownership & entrepreneurship',
+            'Business environment (HK & global)',
+            'Management & decision making',
+            'Marketing basics',
+            'Operations & human resources',
+            'Business ethics & social responsibility',
+            'Accounting basics (equation & double entry)',
+            'Financial statements (P/L, B/S, cash flow)',
+            'Costing & break-even',
+            'Budgeting (basic)',
+            'Financial analysis (ratios)',
+            'Internal control (basic)',
+          ],
+          '5': [
+            'Business ownership & entrepreneurship',
+            'Business environment (HK & global)',
+            'Management & decision making',
+            'Marketing basics',
+            'Operations & human resources',
+            'Business ethics & social responsibility',
+            'Accounting basics (equation & double entry)',
+            'Financial statements (P/L, B/S, cash flow)',
+            'Costing & break-even',
+            'Budgeting (basic)',
+            'Financial analysis (ratios)',
+            'Internal control (basic)',
+          ],
+          '6': [
+            'Business ownership & entrepreneurship',
+            'Business environment (HK & global)',
+            'Management & decision making',
+            'Marketing basics',
+            'Operations & human resources',
+            'Business ethics & social responsibility',
+            'Accounting basics (equation & double entry)',
+            'Financial statements (P/L, B/S, cash flow)',
+            'Costing & break-even',
+            'Budgeting (basic)',
+            'Financial analysis (ratios)',
+            'Internal control (basic)',
+          ],
+        },
+        'Chinese History': {
+          '4': [
+            'Early imperial China (Qin–Han)',
+            'Tang–Song: governance & culture',
+            'Yuan–Ming–Qing: rule & society',
+            'Late Qing reforms & crises',
+            'Republican China (1911–1949)',
+            'Modern China (1949–present)',
+            'China and foreign relations',
+            'Social & economic changes',
+            'Culture, thought & institutions',
+          ],
+          '5': [
+            'Early imperial China (Qin–Han)',
+            'Tang–Song: governance & culture',
+            'Yuan–Ming–Qing: rule & society',
+            'Late Qing reforms & crises',
+            'Republican China (1911–1949)',
+            'Modern China (1949–present)',
+            'China and foreign relations',
+            'Social & economic changes',
+            'Culture, thought & institutions',
+          ],
+          '6': [
+            'Early imperial China (Qin–Han)',
+            'Tang–Song: governance & culture',
+            'Yuan–Ming–Qing: rule & society',
+            'Late Qing reforms & crises',
+            'Republican China (1911–1949)',
+            'Modern China (1949–present)',
+            'China and foreign relations',
+            'Social & economic changes',
+            'Culture, thought & institutions',
+          ],
+        },
+        'History': {
+          '4': [
+            'Industrialisation & imperialism',
+            'World War I & peace settlements',
+            'Interwar period & rise of totalitarianism',
+            'World War II (Europe & Asia)',
+            'Cold War: origins & key crises',
+            'Decolonisation & nationalism',
+            'International relations since 1991',
+            'Historical skills (source analysis)',
+            'Historical writing (essay skills)',
+          ],
+          '5': [
+            'Industrialisation & imperialism',
+            'World War I & peace settlements',
+            'Interwar period & rise of totalitarianism',
+            'World War II (Europe & Asia)',
+            'Cold War: origins & key crises',
+            'Decolonisation & nationalism',
+            'International relations since 1991',
+            'Historical skills (source analysis)',
+            'Historical writing (essay skills)',
+          ],
+          '6': [
+            'Industrialisation & imperialism',
+            'World War I & peace settlements',
+            'Interwar period & rise of totalitarianism',
+            'World War II (Europe & Asia)',
+            'Cold War: origins & key crises',
+            'Decolonisation & nationalism',
+            'International relations since 1991',
+            'Historical skills (source analysis)',
+            'Historical writing (essay skills)',
+          ],
+        },
+      };
+
+      function normalizeSubjectKey(v) {
+        return String(v || '').trim();
+      }
+
+      function getTopicsFor(subject, form) {
+        const s = normalizeSubjectKey(subject);
+        const f = String(form || '').trim();
+        const byForm = topicsBySubjectByForm[s];
+        if (!byForm) return [];
+        return byForm[f] || [];
+      }
+
+      function renderScopeOptions(items) {
+        const current = (scopeValue && scopeValue.value) ? scopeValue.value : (scopeText ? scopeText.value : '');
+        const selected = new Set(
+          String(current)
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+        );
+
+        scopePhysicsBox.innerHTML = '';
+
+        const hint = document.createElement('div');
+        hint.className = 'muted';
+        hint.textContent = 'Click to toggle topics (multi-select).';
+        scopePhysicsBox.appendChild(hint);
+
+        const chips = document.createElement('div');
+        chips.className = 'chips';
+
+        function syncFromChips() {
+          const values = Array.from(chips.querySelectorAll('button.chip[aria-pressed="true"]'))
+            .map(b => b.getAttribute('data-value'))
+            .filter(Boolean);
+          const joined = values.join(', ');
+          if (scopeText) {
+            scopeText.value = joined;
+          }
+          if (scopeValue) {
+            scopeValue.value = joined;
+          }
+        }
+
+        for (const label of items) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'chip chip-toggle';
+          btn.setAttribute('data-value', label);
+          btn.setAttribute('aria-pressed', selected.has(label) ? 'true' : 'false');
+          btn.textContent = label;
+          btn.addEventListener('click', () => {
+            const on = btn.getAttribute('aria-pressed') === 'true';
+            btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+            syncFromChips();
+          });
+          chips.appendChild(btn);
+        }
+
+        scopePhysicsBox.appendChild(chips);
+        syncFromChips();
+      }
+
+      function updateScopeUI() {
+        if (!scopeText || !scopePhysicsBox || !formNumber) return;
+
+        const items = getTopicsFor(select.value, formNumber.value);
+        if (items && items.length) {
+          scopeText.readOnly = true;
+          scopeText.placeholder = 'Select topics below';
+
+          scopePhysicsBox.style.display = '';
+          renderScopeOptions(items);
+        } else {
+          scopePhysicsBox.style.display = 'none';
+
+          scopeText.readOnly = false;
+          scopeText.placeholder = 'e.g. Chapter 1-3';
+
+          if (scopeValue) {
+            scopeValue.value = scopeText.value || '';
+          }
+        }
+      }
+
+      function render(opts) {
+        select.innerHTML = '';
+        for (const o of opts) {
+          const opt = document.createElement('option');
+          opt.value = o.value;
+          opt.textContent = o.label;
+          select.appendChild(opt);
+        }
+      }
+
+      function update() {
+        render(group.value === 'elective' ? elective : core);
+        updateScopeUI();
+      }
+
+      group.addEventListener('change', update);
+      select.addEventListener('change', updateScopeUI);
+      if (formNumber) {
+        formNumber.addEventListener('change', updateScopeUI);
+      }
+
+      if (scopeText) {
+        scopeText.addEventListener('input', () => {
+          if (scopeValue) {
+            scopeValue.value = scopeText.value || '';
+          }
+        });
+      }
+      update();
+
+      if (scopeValue && scopeText) {
+        scopeValue.value = scopeText.value || '';
+      }
+
+      const deadlineInput = document.getElementById('deadlineInput');
+      const deadlineBtn = document.getElementById('deadlineBtn');
+      const deadlineHint = document.getElementById('deadlineHint');
+
+      function refreshDeadlineHint() {
+        deadlineHint.textContent = deadlineInput.value ? deadlineInput.value : 'No date selected';
+      }
+
+      deadlineBtn.addEventListener('click', () => {
+        // showPicker is supported in Chromium-based browsers.
+        if (deadlineInput.showPicker) {
+          deadlineInput.showPicker();
+        } else {
+          deadlineInput.click();
+          deadlineInput.focus();
+        }
+      });
+
+      deadlineInput.addEventListener('change', refreshDeadlineHint);
+      refreshDeadlineHint();
+    })();
+  </script>
+
+  <div class="card" style="overflow:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>id</th>
+          <th>type</th>
+          <th>class</th>
+          <th>subject</th>
+          <th>description</th>
+          <th>scope</th>
+          <th>deadline</th>
+          <th>actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assignments %}
+          <tr>
+            <td>{{ a.id }}</td>
+            <td>{{ a.item_type }}</td>
+            <td>{{ a.target_class }}</td>
+            <td>{{ a.subject }}</td>
+            <td>{{ a.description }}</td>
+            <td>{{ a.scope }}</td>
+            <td>{{ a.deadline }}</td>
+            <td>
+              <form method="POST" action="{{ url_for('teacher_delete_assignment') }}" style="margin:0">
+                <input type="hidden" name="id" value="{{ a.id }}" />
+                <button type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/financial_aid.css') }}" />{% endblock %}
+{% block body %}
+<div class="financial-aid-page">
+  <div class="fa-header">
+    <h1 class="fa-title">💰 Financial Aid Guidance</h1>
+    <p class="fa-subtitle">Discover scholarships, subsidies, and financial assistance available for Hong Kong secondary school students. All data is from official government sources.</p>
+    <div class="fa-actions">
+      <a class="fa-chat-btn" href="{{ url_for('financial_aid_chat') }}">💬 Ask the Financial Aid Advisor</a>
+      <button class="fa-refresh-btn" id="refreshBtn" title="Refresh scholarship data">↻ Refresh Data</button>
+    </div>
+  </div>
+
+  <!-- WFSFAA Schemes -->
+  <section class="fa-section">
+    <h2 class="fa-section-title">🎓 Financial Assistance for Secondary Students</h2>
+    <p class="fa-section-desc">Schemes suitable for Hong Kong secondary school students, from the Working Family and Student Financial Assistance Agency (WFSFAA). Click any scheme to learn more on the official site.</p>
+
+    <div class="fa-filter-bar">
+      <button class="fa-filter-btn active" data-filter="all">All</button>
+      <button class="fa-filter-btn" data-filter="Primary & Secondary Level">Financial Assistance</button>
+      <button class="fa-filter-btn" data-filter="Scholarships & Grants">Scholarships & Grants</button>
+    </div>
+
+    <div class="fa-search-bar">
+      <input type="text" class="fa-search-input" id="schemeSearch" placeholder="Search schemes..." autocomplete="off" />
+    </div>
+
+    <div class="fa-cards" id="schemeCards">
+      {% for sch in schemes %}
+      <div class="fa-card fa-scheme-card" data-category="{{ sch.category }}">
+        <div class="fa-card-header">
+          <h3 class="fa-card-title">{{ sch.name }}</h3>
+          <span class="fa-badge fa-badge-{{ sch.category | lower | replace(' ', '-') | replace('&', '') | replace('/', '-') | truncate(20, True, '') }}">{{ sch.category }}</span>
+        </div>
+        {% if sch.description %}
+        <p class="fa-card-desc">{{ sch.description[:200] }}{% if sch.description|length > 200 %}…{% endif %}</p>
+        {% endif %}
+        <div class="fa-card-meta">
+          <span class="fa-meta-item">🏛️ {{ sch.provider }}</span>
+        </div>
+        <div class="fa-card-links">
+          <a href="{{ sch.url }}" target="_blank" rel="noopener">Official page ↗</a>
+          <a href="{{ url_for('financial_aid_chat') }}?ask={{ sch.name | urlencode }}" class="fa-ask-link">💬 Ask about this</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="fa-section fa-cta-section">
+    <h2 class="fa-section-title">🤖 Not sure what you're eligible for?</h2>
+    <p class="fa-section-desc">Chat with our Financial Aid Advisor — powered by AI and real government data. Tell it about your situation and it'll recommend suitable schemes.</p>
+    <a class="fa-chat-btn fa-chat-btn-lg" href="{{ url_for('financial_aid_chat') }}">Start a conversation →</a>
+  </section>
+</div>
+
+<script>
+(function() {
+  // Filter buttons
+  const filterBtns = document.querySelectorAll('.fa-filter-btn');
+  const cards = document.querySelectorAll('.fa-scheme-card');
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const f = btn.dataset.filter;
+      cards.forEach(card => {
+        if (f === 'all' || card.dataset.category === f || card.dataset.category.includes(f)) {
+          card.style.display = '';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    });
+  });
+
+  // Search
+  const searchInput = document.getElementById('schemeSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase().trim();
+      cards.forEach(card => {
+        const text = card.textContent.toLowerCase();
+        card.style.display = (!q || text.includes(q)) ? '' : 'none';
+      });
+      // Reset filter buttons
+      if (q) filterBtns.forEach(b => b.classList.remove('active'));
+    });
+  }
+
+  // Refresh button
+  const refreshBtn = document.getElementById('refreshBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '↻ Refreshing...';
+      try {
+        const resp = await fetch('/api/financial-aid/refresh', { method: 'POST' });
+        if (resp.ok) {
+          window.location.reload();
+        } else {
+          alert('Refresh failed. Please try again.');
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '↻ Refresh Data';
+        }
+      } catch {
+        alert('Refresh failed. Please try again.');
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '↻ Refresh Data';
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

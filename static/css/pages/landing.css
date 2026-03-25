@@ -1,0 +1,61 @@
+.landing-page { min-height: calc(100vh - 53px); padding: 0; }
+.landing-hero {
+  width: 100%;
+  min-height: calc(100vh - 53px);
+  border: 0;
+  border-radius: 0;
+  padding: 56px 16px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(900px 460px at 50% 35%, rgba(59,130,246,.18), rgba(0,0,0,0) 62%),
+    radial-gradient(520px 320px at 50% 12%, rgba(168,85,247,.15), rgba(0,0,0,0) 60%),
+    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01));
+}
+.landing-hero::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 42px;
+  transform: translateX(-50%);
+  width: min(980px, 120%);
+  height: 520px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 62%);
+  filter: blur(1px);
+  opacity: .9;
+  pointer-events: none;
+}
+.landing-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 26%, rgba(255,255,255,.25), rgba(255,255,255,0)),
+    radial-gradient(1px 1px at 24% 68%, rgba(255,255,255,.18), rgba(255,255,255,0)),
+    radial-gradient(1px 1px at 78% 34%, rgba(255,255,255,.22), rgba(255,255,255,0)),
+    radial-gradient(1px 1px at 86% 72%, rgba(255,255,255,.16), rgba(255,255,255,0));
+  opacity: .9;
+  pointer-events: none;
+}
+.landing-badge { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.20); }
+.landing-badge-icon { width: 22px; height: 22px; border-radius: 9px; background: conic-gradient(from 180deg, rgba(59,130,246,1), rgba(168,85,247,1), rgba(239,68,68,1), rgba(59,130,246,1)); box-shadow: 0 0 0 3px rgba(255,255,255,.06); }
+.landing-badge-title { font-weight: 800; }
+.landing-badge-sub { font-size: 12px; color: var(--muted); border-left: 1px solid rgba(255,255,255,.10); padding-left: 10px; }
+.landing-title { position: relative; z-index: 1; margin: 26px auto 0; text-align: center; font-size: clamp(30px, 4.2vw, 52px); line-height: 1.12; font-weight: 900; letter-spacing: -0.02em; }
+.landing-title-muted { color: rgba(229,231,235,.62); }
+.landing-prompt { position: relative; z-index: 1; margin: 26px auto 0; width: min(760px, 100%); display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.22); backdrop-filter: blur(8px); transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, width 180ms ease; cursor: text; }
+.landing-prompt:hover { background: rgba(0,0,0,.28); border-color: rgba(255,255,255,.20); }
+.landing-sending .landing-title, .landing-sending .landing-sub, .landing-sending .landing-badge { opacity: 0; transform: translateY(-6px); transition: opacity 160ms ease, transform 160ms ease; }
+.landing-sending .landing-prompt { transform: scale(1.03); border-color: rgba(59,130,246,.40); background: rgba(0,0,0,.30); }
+.landing-prompt-left { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); color: rgba(229,231,235,.85); flex: 0 0 auto; }
+.landing-prompt-input { flex: 1; margin-top: 0; border: 0; background: transparent; padding: 10px 6px; outline: none; color: var(--text); font-size: 14px; }
+.landing-prompt-input::placeholder { color: rgba(229,231,235,.48); }
+.landing-prompt-btn { margin-top: 0; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(59,130,246,.35); background: rgba(59,130,246,.18); color: var(--text); font-weight: 700; }
+.landing-prompt-btn:hover { background: rgba(59,130,246,.26); border-color: rgba(59,130,246,.55); }
+.landing-sub { position: relative; z-index: 1; text-align: center; color: var(--muted); margin-top: 14px; font-size: 13px; }
+@media (max-width: 900px) { .landing-hero { padding: 44px 14px; } }

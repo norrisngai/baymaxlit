@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block page_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/activities.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/teacher.css') }}" />
+{% endblock %}
+{% block body %}
+<div class="page">
+  <a class="link" href="{{ url_for('teacher_activities') }}">&larr; Back to Activities</a>
+
+  <h1 style="margin-top:12px;">{{ activity.name }}</h1>
+  <div class="activity-detail-header">
+    <span class="activity-type-badge {{ 'mandatory' if activity.activity_type == 'mandatory' else 'optional' }}">
+      {{ activity.activity_type }}
+    </span>
+    <span class="muted">{{ activity.date }} &middot; {{ activity.start_time }} – {{ activity.end_time }} &middot; {{ activity.venue }}</span>
+  </div>
+  {% if activity.tags %}
+    <div class="activity-tags" style="margin-top:8px;">
+      {% for tag in activity.tags %}
+        <span class="activity-tag">{{ tag }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h2 style="margin-top:20px;">Enrolled Students ({{ students|length }})</h2>
+  {% if students %}
+    <div class="card" style="overflow:auto;">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Class</th>
+            <th>Enrolled At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in students %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ s.name or '—' }}</td>
+              <td>{{ s.email }}</td>
+              <td>{{ s.class_level or '—' }}</td>
+              <td>{{ s.enrolled_at }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="muted">No students have joined this activity yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

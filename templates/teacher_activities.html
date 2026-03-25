@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block page_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/activities.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/teacher.css') }}" />
+{% endblock %}
+{% block body %}
+<div class="page">
+  <h1>Extracurricular Activities</h1>
+  <div class="muted">Create and manage activities for students.</div>
+
+  <!-- Create Activity Form -->
+  <div class="card" style="margin-top:16px;">
+    <h2 style="margin-top:0;">Create New Activity</h2>
+    <form method="POST" action="{{ url_for('teacher_add_activity') }}">
+      <div class="row row-tight">
+        <div>
+          <label>Activity Name</label>
+          <input type="text" name="name" placeholder="e.g. Basketball Practice" required />
+        </div>
+        <div>
+          <label>Activity Type</label>
+          <select name="activity_type" required>
+            <option value="optional">Optional (Students decide)</option>
+            <option value="mandatory">Mandatory (Must Join)</option>
+          </select>
+        </div>
+        <div>
+          <label>Venue</label>
+          <input type="text" name="venue" placeholder="e.g. School Gym" required />
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <label>Activity Tags</label>
+        <div class="chips">
+          {% for tag in tag_choices %}
+            <label class="chip">
+              <input type="checkbox" name="tags" value="{{ tag }}" />
+              <span>{{ tag }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="row row-tight" style="margin-top:12px;">
+        <div>
+          <label>Date</label>
+          <input type="date" name="date" required />
+        </div>
+        <div>
+          <label>Start Time</label>
+          <input type="time" name="start_time" required />
+        </div>
+        <div>
+          <label>End Time</label>
+          <input type="time" name="end_time" required />
+        </div>
+      </div>
+
+      <button type="submit" style="margin-top:14px;">Create Activity</button>
+    </form>
+  </div>
+
+  <!-- Activity List -->
+  <h2 style="margin-top:24px;">Your Activities</h2>
+  {% if activities %}
+    <div class="activity-grid">
+      {% for act in activities %}
+        <div class="card activity-card">
+          <div class="activity-card-header">
+            <h3 style="margin:0;">{{ act.name }}</h3>
+            <span class="activity-type-badge {{ 'mandatory' if act.activity_type == 'mandatory' else 'optional' }}">
+              {{ act.activity_type }}
+            </span>
+          </div>
+          <div class="activity-card-details">
+            <div class="activity-detail">
+              <span class="muted">Date:</span> {{ act.date }}
+            </div>
+            <div class="activity-detail">
+              <span class="muted">Time:</span> {{ act.start_time }} – {{ act.end_time }}
+            </div>
+            <div class="activity-detail">
+              <span class="muted">Venue:</span> {{ act.venue }}
+            </div>
+            <div class="activity-detail">
+              <span class="muted">Students joined:</span> {{ act.enrolled_count }}
+            </div>
+            {% if act.tags %}
+              <div class="activity-tags">
+                {% for tag in act.tags %}
+                  <span class="activity-tag">{{ tag }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="activity-card-actions">
+            <a class="btn btn-sm" href="{{ url_for('teacher_activity_students', activity_id=act.id) }}">View Students</a>
+            <form method="POST" action="{{ url_for('teacher_delete_activity') }}" style="display:inline;" onsubmit="return confirm('Delete this activity?')">
+              <input type="hidden" name="id" value="{{ act.id }}" />
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="muted" style="margin-top:12px;">No activities created yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

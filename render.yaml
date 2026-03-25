@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: test-chatbot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_app:app
+    autoDeploy: true
+    envVars:
+      - key: BAYMAX_WEB_SECRET
+        generateValue: true
+      - key: GOOGLE_GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_CONFIG_JSON
+        sync: false
+      - key: GEMINI_MODEL
+        value: models/gemini-2.5-flash-lite
+      - key: WEB_DB_PATH
+        value: webapp.db
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: STUDY_TIMER_CHUNK_SECONDS
+        value: "1800"
+      - key: STUDY_TIMER_COINS_PER_CHUNK
+        value: "10"

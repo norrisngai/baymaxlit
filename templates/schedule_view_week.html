@@ -1,0 +1,89 @@
+<div class="schedule-top">
+  <div style="flex:1;">
+    <a class="link" href="{{ url_for('schedule', ym=ym) }}">← Month</a>
+  </div>
+
+  <div class="schedule-week-nav">
+    <a class="nav-arrow" href="{{ url_for('schedule', week=prev_week, ym=ym) }}" title="Previous Week">❮</a>
+    <div class="schedule-month-title" style="white-space:nowrap;">{{ week_label }}</div>
+    <a class="nav-arrow" href="{{ url_for('schedule', week=next_week, ym=ym) }}" title="Next Week">❯</a>
+  </div>
+
+  <div class="schedule-top-actions" style="flex:1; justify-content:flex-end;">
+    {% if google_connected %}
+      <form method="POST" action="{{ url_for('google_disconnect') }}" style="margin:0; display:inline-block">
+        <button type="submit">Disconnect Google</button>
+      </form>
+      <button type="button" id="syncBtn">Sync to Google</button>
+    {% else %}
+      <a class="link" href="{{ url_for('google_connect') }}">Connect Google Calendar</a>
+    {% endif %}
+    <button type="button" id="generateBtn">Generate</button>
+    <button type="button" id="deleteAiBtn" title="Delete AI generated timetable">Delete</button>
+    <button type="button" id="editBtn" title="Manual edit">✎</button>
+  </div>
+</div>
+
+<div class="schedule-timetable-wrap" id="scheduleTimetableWrap">
+  <div class="schedule-timetable-content">
+    <div class="week-wrap" id="weekWrap">
+      <div class="week-head">
+        <div class="week-head-spacer"></div>
+        {% for col in week_cols %}
+          <div class="week-head-day" data-date="{{ col.date }}">
+            <div class="week-head-left">
+              <span class="week-head-dow">{{ col.label }}</span>
+              {% if col.deadlines and (col.deadlines|length) > 0 %}
+                <button
+                  type="button"
+                  class="week-deadline-dot"
+                  aria-label="Show deadlines"
+                  aria-expanded="false"
+                  data-date="{{ col.date }}"></button>
+                <div class="week-deadline-pop" data-date="{{ col.date }}" hidden>
+                  <div class="week-deadline-pop-title">Deadlines</div>
+                  <ul class="week-deadline-list">
+                    {% for d in col.deadlines %}
+                      <li>{{ d.subject }} • {{ d.item_type }} (due)</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+            </div>
+            <span class="week-head-date">{{ col.day }}</span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="week-grid" id="weekGrid">
+        <div class="week-timecol">
+          {% for h in (week_hours or []) %}
+            <div class="week-hour">{{ h }}</div>
+          {% endfor %}
+        </div>
+
+        {% for col in week_cols %}
+          <div class="week-daycol" data-date="{{ col.date }}">
+            {% for e in col.events %}
+              <button type="button" class="week-event"
+                data-id="{{ e.id }}"
+                data-date="{{ e.date }}"
+                data-start="{{ e.start_time }}"
+                data-end="{{ e.end_time }}"
+                data-subject="{{ e.subject }}"
+                data-task-type="{{ e.task_type }}"
+                data-detail='{{ e.detail|tojson }}'>
+                <div class="week-event-title">{{ e.title }}</div>
+                <div class="week-event-time">{{ e.time }}</div>
+              </button>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-loading-overlay" id="scheduleLoadingOverlay" aria-hidden="true">
+    <div class="schedule-loading-spinner" aria-label="Loading"></div>
+  </div>
+</div>

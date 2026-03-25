@@ -1,0 +1,947 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/notebook.css') }}" />{% endblock %}
+{% block body %}
+
+
+<div class="nbd">
+  <!-- ============ LEFT PANEL: Sources ============ -->
+  <aside class="nbd-sources">
+    <div class="nbd-sources-head">
+      <a class="iconbtn" href="{{ url_for('notebook_home') }}" title="Back to notebooks">←</a>
+      <span class="nbd-sources-title">Sources</span>
+      <button class="iconbtn" id="addSourceBtn" title="Add source">＋</button>
+    </div>
+    <div class="nbd-source-sel-bar" id="selBar">
+      <span id="selCount">0 selected</span>
+      <button class="nbd-sel-all-btn" id="selAllBtn" title="Select all">Select All</button>
+      <button class="nbd-sel-all-btn" id="deselectAllBtn" title="Deselect all">Deselect</button>
+    </div>
+    <div class="nbd-source-list" id="sourceList">
+      {% for src in sources %}
+      <div class="nbd-source-item" data-source-id="{{ src.id }}">
+        <input type="checkbox" class="nbd-source-check" data-sid="{{ src.id }}" />
+        <div class="nbd-source-icon">
+          {% if src.source_type == 'upload' %}📄{% elif src.source_type == 'textbook' %}📚{% else %}📋{% endif %}
+        </div>
+        <div class="nbd-source-info">
+          <div class="nbd-source-name" title="{{ src.title }}">{{ src.title }}</div>
+          <div class="nbd-source-type">{{ src.source_type }}</div>
+        </div>
+        <button class="nbd-source-del" data-sid="{{ src.id }}" title="Remove source">✕</button>
+      </div>
+      {% endfor %}
+      {% if not sources %}
+      <div class="nbd-source-empty" id="sourceEmpty">
+        <p>No sources yet. Add lecture notes, textbooks, or paste content.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Notebook notes (below sources) -->
+    <div class="nbd-notes-section">
+      <div class="nbd-notes-head">
+        <span class="nbd-notes-title">📝 Notes</span>
+        <button class="iconbtn" id="addNoteBtn" title="Add note">＋</button>
+      </div>
+      <div class="nbd-note-list" id="noteList">
+        {% for note in notes %}
+        <div class="nbd-note-item" data-note-id="{{ note.id }}">
+          <div class="nbd-note-name">{{ note.title }}</div>
+          <button class="nbd-note-del" data-nid="{{ note.id }}" title="Delete note">✕</button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ CENTER PANEL: Chat ============ -->
+  <main class="nbd-chat">
+    <div class="nbd-chat-head">
+      <h2 class="nbd-nb-title" id="nbTitle" title="Click to rename">{{ notebook.title }}</h2>
+    </div>
+
+    <div class="nbd-messages" id="nbMessages">
+      <div class="nbd-welcome" id="nbWelcome">
+        <div class="nbd-welcome-icon">📓</div>
+        <h2>Welcome to your Notebook</h2>
+        <p>Add sources on the left, select which ones to use, then ask questions or generate study materials from the Studio panel.</p>
+        <div class="nbd-suggest-chips">
+          <button class="nbd-chip" data-msg="Summarise all my sources">Summarise my sources</button>
+          <button class="nbd-chip" data-msg="What are the key concepts across all my notes?">Key concepts</button>
+          <button class="nbd-chip" data-msg="Create a study plan from my materials">Study plan</button>
+          <button class="nbd-chip" data-msg="What topics should I focus on for the exam?">Exam focus topics</button>
+        </div>
+      </div>
+    </div>
+
+    <form class="composer nbd-composer" id="nbChatForm">
+      <textarea id="nbChatInput" placeholder="Ask about your sources..." rows="1"></textarea>
+      <button type="submit" class="sendbtn" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+        </svg>
+      </button>
+    </form>
+  </main>
+
+  <!-- ============ RIGHT PANEL: Studio ============ -->
+  <aside class="nbd-studio">
+    <div class="nbd-studio-head">
+      <span class="nbd-studio-title">Studio</span>
+    </div>
+
+    <!-- Studio generation buttons -->
+    <div class="nbd-studio-tools" id="studioTools">
+      {% for st in studio_types %}
+      <button class="nbd-studio-btn" data-type="{{ st.id }}" title="{{ st.description }}">
+        <span class="nbd-studio-btn-icon">{{ st.icon }}</span>
+        <span class="nbd-studio-btn-label">{{ st.label }}</span>
+      </button>
+      {% endfor %}
+      <!-- Quiz button (redirects to quiz page) -->
+      <button class="nbd-studio-btn" data-type="quiz" title="Take a quiz based on your selected sources">
+        <span class="nbd-studio-btn-icon">❓</span>
+        <span class="nbd-studio-btn-label">Quiz</span>
+      </button>
+    </div>
+
+    <!-- Studio outputs -->
+    <div class="nbd-studio-outputs">
+      <div class="nbd-studio-outputs-head">
+        <span>Studio output will be saved here</span>
+      </div>
+      <div class="nbd-output-list" id="outputList">
+        {% for o in outputs %}
+        <div class="nbd-output-item" data-output-id="{{ o.id }}" data-output-type="{{ o.output_type }}">
+          <div class="nbd-output-name" data-oid="{{ o.id }}" data-otype="{{ o.output_type }}">{{ o.title }}</div>
+          <button class="nbd-output-del" data-oid="{{ o.id }}" title="Delete output">✕</button>
+        </div>
+        {% endfor %}
+        {% if not outputs %}
+        <div class="nbd-output-empty" id="outputEmpty">
+          <p>Generate outputs from the tools above.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ============ MODALS ============ -->
+
+<!-- Add Source Modal -->
+<div class="nbd-modal-overlay" id="sourceModal" style="display:none;">
+  <div class="nbd-modal">
+    <div class="nbd-modal-head">
+      <h3>Add Source</h3>
+      <button class="iconbtn nbd-modal-close" id="sourceModalClose">✕</button>
+    </div>
+    <div class="nbd-modal-body">
+      <div class="nbd-tabs">
+        <button class="nbd-tab active" data-tab="upload">📄 Upload File</button>
+        <button class="nbd-tab" data-tab="textbook">📚 Textbook</button>
+        <button class="nbd-tab" data-tab="paste">📋 Paste Text</button>
+      </div>
+
+      <div class="nbd-tab-content active" id="tab-upload">
+        <p class="nbd-tab-desc">Upload your lecture notes or PowerPoint files (PDF, DOCX, TXT).</p>
+        <label class="nbd-upload-area" id="uploadArea">
+          <input type="file" id="sourceFile" accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.pptx" hidden />
+          <div class="nbd-upload-icon">📁</div>
+          <div class="nbd-upload-text">Click to select or drag & drop a file</div>
+          <div class="nbd-upload-hint">PDF, DOCX, TXT, MD supported</div>
+        </label>
+        <div class="nbd-upload-selected" id="uploadSelected" style="display:none;">
+          <span id="uploadFileName"></span>
+          <button type="button" class="iconbtn" id="uploadClear">✕</button>
+        </div>
+        <button class="nbd-modal-submit" id="uploadSubmit" disabled>Add Source</button>
+      </div>
+
+      <div class="nbd-tab-content" id="tab-textbook">
+        <p class="nbd-tab-desc">Select your textbook, chapter, and optional page range.</p>
+        <label class="nbd-field-label">Subject</label>
+        <select id="tbSubject" class="nbd-select">
+          <option value="">Select subject...</option>
+          {% for subj in textbook_subjects %}
+          <option value="{{ subj }}">{{ subj }}</option>
+          {% endfor %}
+        </select>
+        <label class="nbd-field-label">Textbook</label>
+        <select id="tbBook" class="nbd-select" disabled>
+          <option value="">Select textbook...</option>
+        </select>
+        <label class="nbd-field-label">Chapter / Topic</label>
+        <select id="tbChapterSelect" class="nbd-select" disabled>
+          <option value="">Select or type below...</option>
+        </select>
+        <input type="text" id="tbChapter" class="nbd-input" placeholder="Or type a custom chapter/topic name..." />
+        <label class="nbd-field-label">Page Range (optional)</label>
+        <input type="text" id="tbPages" class="nbd-input" placeholder="e.g. 45-60" />
+        <button class="nbd-modal-submit" id="textbookSubmit">Add Textbook Source</button>
+      </div>
+
+      <div class="nbd-tab-content" id="tab-paste">
+        <p class="nbd-tab-desc">Paste your lecture notes or any study content directly.</p>
+        <label class="nbd-field-label">Title</label>
+        <input type="text" id="pasteTitle" class="nbd-input" placeholder="e.g. Physics Ch3 Notes" />
+        <label class="nbd-field-label">Content</label>
+        <textarea id="pasteContent" class="nbd-textarea" rows="8" placeholder="Paste your notes here..."></textarea>
+        <button class="nbd-modal-submit" id="pasteSubmit">Add Notes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- View Output Modal (regular markdown outputs + video) -->
+<div class="nbd-modal-overlay" id="outputModal" style="display:none;">
+  <div class="nbd-modal nbd-modal-lg">
+    <div class="nbd-modal-head">
+      <h3 id="outputModalTitle">Output</h3>
+      <button class="iconbtn nbd-modal-close" id="outputModalClose">✕</button>
+    </div>
+    <div class="nbd-modal-body nbd-output-view" id="outputModalContent">
+    </div>
+  </div>
+</div>
+
+<!-- Flashcard Modal -->
+<div class="nbd-modal-overlay" id="flashcardModal" style="display:none;">
+  <div class="nbd-modal nbd-modal-lg nbd-flashcard-modal">
+    <div class="nbd-modal-head">
+      <h3 id="flashcardModalTitle">Flashcards</h3>
+      <button class="iconbtn nbd-modal-close" id="flashcardModalClose">✕</button>
+    </div>
+    <div class="nbd-modal-body nbd-flashcard-body">
+      <div class="fc-container">
+        <button class="fc-arrow fc-arrow-left" id="fcPrev" title="Previous">&#8249;</button>
+        <div class="fc-card-wrapper">
+          <div class="fc-card" id="fcCard">
+            <div class="fc-card-inner" id="fcCardInner">
+              <div class="fc-card-front">
+                <div class="fc-label">Question</div>
+                <div class="fc-text" id="fcQuestion"></div>
+                <div class="fc-hint">Click to flip</div>
+              </div>
+              <div class="fc-card-back">
+                <div class="fc-label">Answer</div>
+                <div class="fc-text" id="fcAnswer"></div>
+                <div class="fc-hint">Click to flip back</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="fc-arrow fc-arrow-right" id="fcNext" title="Next">&#8250;</button>
+      </div>
+      <div class="fc-counter" id="fcCounter">1 / 1</div>
+    </div>
+  </div>
+</div>
+
+<!-- Mind Map Modal -->
+<div class="nbd-modal-overlay" id="mindmapModal" style="display:none;">
+  <div class="nbd-modal nbd-modal-xl">
+    <div class="nbd-modal-head">
+      <h3 id="mindmapModalTitle">Mind Map</h3>
+      <button class="iconbtn nbd-modal-close" id="mindmapModalClose">✕</button>
+    </div>
+    <div class="nbd-modal-body nbd-mindmap-body">
+      <div id="mindmapContainer" class="nbd-mindmap-render"></div>
+      <button class="nbd-mindmap-expand" id="mindmapExpandBtn" type="button" aria-label="Expand mind map" title="Expand view">⛶</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Source Modal -->
+<div class="nbd-modal-overlay" id="sourceViewModal" style="display:none;">
+  <div class="nbd-modal nbd-modal-lg">
+    <div class="nbd-modal-head">
+      <h3 id="sourceViewTitle">Source</h3>
+      <button class="iconbtn nbd-modal-close" id="sourceViewClose">✕</button>
+    </div>
+    <div class="nbd-modal-body nbd-source-view" id="sourceViewContent">
+    </div>
+  </div>
+</div>
+
+<!-- Note Editor Modal -->
+<div class="nbd-modal-overlay" id="noteModal" style="display:none;">
+  <div class="nbd-modal">
+    <div class="nbd-modal-head">
+      <h3 id="noteModalTitle">Add Note</h3>
+      <button class="iconbtn nbd-modal-close" id="noteModalClose">✕</button>
+    </div>
+    <div class="nbd-modal-body">
+      <label class="nbd-field-label">Title</label>
+      <input type="text" id="noteTitle" class="nbd-input" placeholder="Note title..." />
+      <label class="nbd-field-label">Content</label>
+      <textarea id="noteContent" class="nbd-textarea" rows="8" placeholder="Write your note..."></textarea>
+      <button class="nbd-modal-submit" id="noteSave">Save Note</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const NB_ID = {{ notebook.id }};
+const TEXTBOOKS = {{ textbooks_json|safe }};
+
+(function(){
+  // ---- Helpers ----
+  function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+  // ---- Source Selection ----
+  function getSelectedSourceIds() {
+    const ids = [];
+    document.querySelectorAll('.nbd-source-check:checked').forEach(cb => {
+      ids.push(parseInt(cb.dataset.sid));
+    });
+    return ids;
+  }
+
+  function updateSelectionBar() {
+    const count = document.querySelectorAll('.nbd-source-check:checked').length;
+    const total = document.querySelectorAll('.nbd-source-check').length;
+    document.getElementById('selCount').textContent = count + ' of ' + total + ' selected';
+    document.querySelectorAll('.nbd-source-item').forEach(el => {
+      const cb = el.querySelector('.nbd-source-check');
+      if (cb && cb.checked) {
+        el.classList.add('nbd-source-selected');
+      } else {
+        el.classList.remove('nbd-source-selected');
+      }
+    });
+  }
+
+  document.getElementById('selAllBtn').addEventListener('click', () => {
+    document.querySelectorAll('.nbd-source-check').forEach(cb => { cb.checked = true; });
+    updateSelectionBar();
+  });
+  document.getElementById('deselectAllBtn').addEventListener('click', () => {
+    document.querySelectorAll('.nbd-source-check').forEach(cb => { cb.checked = false; });
+    updateSelectionBar();
+  });
+
+  document.getElementById('sourceList').addEventListener('change', (e) => {
+    if (e.target.classList.contains('nbd-source-check')) updateSelectionBar();
+  });
+
+  // Select all by default on load
+  document.querySelectorAll('.nbd-source-check').forEach(cb => { cb.checked = true; });
+  updateSelectionBar();
+
+  // ---- Chat ----
+  const chatForm = document.getElementById('nbChatForm');
+  const chatInput = document.getElementById('nbChatInput');
+  const messagesEl = document.getElementById('nbMessages');
+  const welcome = document.getElementById('nbWelcome');
+  let chatHistory = [];
+
+  function scrollBottom() { if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+  if (chatInput) {
+    chatInput.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+    });
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.dispatchEvent(new Event('submit')); }
+    });
+  }
+
+  document.querySelectorAll('.nbd-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      if (chatInput) { chatInput.value = chip.dataset.msg; chatInput.focus(); }
+    });
+  });
+
+  if (chatForm) {
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = (chatInput.value || '').trim();
+      if (!text) return;
+
+      if (welcome) welcome.style.display = 'none';
+
+      const userRow = document.createElement('div');
+      userRow.className = 'msgrow user';
+      userRow.innerHTML = '<div class="bubble"><div class="role">You</div><div class="content">' + escapeHtml(text) + '</div></div>';
+      messagesEl.appendChild(userRow);
+      chatInput.value = ''; chatInput.style.height = 'auto';
+      scrollBottom();
+
+      chatHistory.push({role: 'user', content: text});
+
+      const thinkRow = document.createElement('div');
+      thinkRow.className = 'msgrow assistant';
+      thinkRow.innerHTML = '<div class="bubble"><div class="role">Notebook AI</div><div class="content"><em>Thinking...</em></div></div>';
+      messagesEl.appendChild(thinkRow);
+      scrollBottom();
+
+      try {
+        const resp = await fetch('/api/notebook/' + NB_ID + '/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, history: chatHistory, source_ids: getSelectedSourceIds() })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          thinkRow.querySelector('.content').innerHTML = data.reply_html || escapeHtml(data.reply);
+          chatHistory.push({role: 'assistant', content: data.reply});
+          if (typeof window.renderLatex === 'function') window.renderLatex(thinkRow);
+        } else {
+          thinkRow.querySelector('.content').innerHTML = '<em>Error: ' + escapeHtml(data.error || 'Unknown') + '</em>';
+        }
+      } catch {
+        thinkRow.querySelector('.content').innerHTML = '<em>Network error.</em>';
+      }
+      scrollBottom();
+    });
+  }
+
+  // ---- Source Modal ----
+  const sourceModal = document.getElementById('sourceModal');
+  document.getElementById('addSourceBtn').addEventListener('click', () => { sourceModal.style.display = 'flex'; });
+  document.getElementById('sourceModalClose').addEventListener('click', () => { sourceModal.style.display = 'none'; });
+  sourceModal.addEventListener('click', (e) => { if (e.target === sourceModal) sourceModal.style.display = 'none'; });
+
+  document.querySelectorAll('.nbd-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.nbd-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nbd-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Upload
+  const sourceFile = document.getElementById('sourceFile');
+  const uploadArea = document.getElementById('uploadArea');
+  const uploadSelected = document.getElementById('uploadSelected');
+  const uploadFileName = document.getElementById('uploadFileName');
+  const uploadClear = document.getElementById('uploadClear');
+  const uploadSubmit = document.getElementById('uploadSubmit');
+
+  sourceFile.addEventListener('change', () => {
+    if (sourceFile.files.length > 0) {
+      uploadFileName.textContent = sourceFile.files[0].name;
+      uploadSelected.style.display = 'flex';
+      uploadArea.style.display = 'none';
+      uploadSubmit.disabled = false;
+    }
+  });
+  uploadClear.addEventListener('click', () => {
+    sourceFile.value = '';
+    uploadSelected.style.display = 'none';
+    uploadArea.style.display = 'flex';
+    uploadSubmit.disabled = true;
+  });
+
+  uploadSubmit.addEventListener('click', async () => {
+    if (!sourceFile.files.length) return;
+    uploadSubmit.disabled = true;
+    uploadSubmit.textContent = 'Uploading...';
+    const fd = new FormData();
+    fd.append('file', sourceFile.files[0]);
+    try {
+      const resp = await fetch('/api/notebook/' + NB_ID + '/source/upload', { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.ok) {
+        addSourceToList(data.source);
+        sourceModal.style.display = 'none';
+        sourceFile.value = '';
+        uploadSelected.style.display = 'none';
+        uploadArea.style.display = 'flex';
+      } else {
+        alert(data.error || 'Upload failed');
+      }
+    } catch { alert('Network error'); }
+    uploadSubmit.disabled = false;
+    uploadSubmit.textContent = 'Add Source';
+  });
+
+  // Textbook dropdowns
+  const tbSubject = document.getElementById('tbSubject');
+  const tbBook = document.getElementById('tbBook');
+  const tbChapterSelect = document.getElementById('tbChapterSelect');
+  const tbChapter = document.getElementById('tbChapter');
+  const tbPages = document.getElementById('tbPages');
+  const textbookSubmit = document.getElementById('textbookSubmit');
+
+  tbSubject.addEventListener('change', () => {
+    const subj = tbSubject.value;
+    tbBook.innerHTML = '<option value="">Select textbook...</option>';
+    tbChapterSelect.innerHTML = '<option value="">Select or type below...</option>';
+    tbBook.disabled = true; tbChapterSelect.disabled = true;
+    if (!subj || !TEXTBOOKS[subj]) return;
+    TEXTBOOKS[subj].forEach(book => {
+      const opt = document.createElement('option');
+      opt.value = book.id;
+      opt.textContent = book.series + ' (' + book.publisher + ')';
+      tbBook.appendChild(opt);
+    });
+    tbBook.disabled = false;
+  });
+
+  tbBook.addEventListener('change', () => {
+    const subj = tbSubject.value;
+    const bookId = tbBook.value;
+    tbChapterSelect.innerHTML = '<option value="">Select or type below...</option>';
+    tbChapterSelect.disabled = true;
+    if (!subj || !bookId || !TEXTBOOKS[subj]) return;
+    const book = TEXTBOOKS[subj].find(b => b.id === bookId);
+    if (book && book.chapters && book.chapters.length > 0) {
+      book.chapters.forEach(ch => {
+        const opt = document.createElement('option');
+        opt.value = ch.title;
+        opt.textContent = 'Ch ' + ch.num + ': ' + ch.title;
+        tbChapterSelect.appendChild(opt);
+      });
+      tbChapterSelect.disabled = false;
+    }
+  });
+
+  tbChapterSelect.addEventListener('change', () => {
+    if (tbChapterSelect.value) tbChapter.value = tbChapterSelect.value;
+  });
+
+  textbookSubmit.addEventListener('click', async () => {
+    const subject = tbSubject.value;
+    const textbook_id = tbBook.value;
+    const chapter = tbChapter.value.trim() || tbChapterSelect.value;
+    const page_range = tbPages.value.trim();
+    if (!subject || !textbook_id || !chapter) {
+      alert('Please select subject, textbook, and chapter.'); return;
+    }
+    textbookSubmit.disabled = true;
+    textbookSubmit.textContent = 'Fetching content...';
+    try {
+      const resp = await fetch('/api/notebook/' + NB_ID + '/source/textbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, textbook_id, chapter, page_range })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        addSourceToList(data.source);
+        sourceModal.style.display = 'none';
+      } else {
+        alert(data.error || 'Failed to add textbook source');
+      }
+    } catch { alert('Network error'); }
+    textbookSubmit.disabled = false;
+    textbookSubmit.textContent = 'Add Textbook Source';
+  });
+
+  // Paste
+  const pasteSubmit = document.getElementById('pasteSubmit');
+  pasteSubmit.addEventListener('click', async () => {
+    const title = document.getElementById('pasteTitle').value.trim();
+    const content = document.getElementById('pasteContent').value.trim();
+    if (!content) { alert('Please paste some content.'); return; }
+    pasteSubmit.disabled = true;
+    pasteSubmit.textContent = 'Adding...';
+    try {
+      const resp = await fetch('/api/notebook/' + NB_ID + '/source/paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title || 'Pasted notes', content })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        addSourceToList(data.source);
+        sourceModal.style.display = 'none';
+        document.getElementById('pasteTitle').value = '';
+        document.getElementById('pasteContent').value = '';
+      } else {
+        alert(data.error || 'Failed');
+      }
+    } catch { alert('Network error'); }
+    pasteSubmit.disabled = false;
+    pasteSubmit.textContent = 'Add Notes';
+  });
+
+  // Add source to sidebar list (auto-select new source)
+  function addSourceToList(src) {
+    const empty = document.getElementById('sourceEmpty');
+    if (empty) empty.remove();
+    const list = document.getElementById('sourceList');
+    const icons = { upload: '📄', textbook: '📚', paste: '📋' };
+    const div = document.createElement('div');
+    div.className = 'nbd-source-item';
+    div.dataset.sourceId = src.id;
+    div.innerHTML =
+      '<input type="checkbox" class="nbd-source-check" data-sid="' + src.id + '" checked />' +
+      '<div class="nbd-source-icon">' + (icons[src.source_type] || '📄') + '</div>' +
+      '<div class="nbd-source-info"><div class="nbd-source-name" title="' + escapeHtml(src.title) + '">' + escapeHtml(src.title) + '</div>' +
+      '<div class="nbd-source-type">' + escapeHtml(src.source_type) + '</div></div>' +
+      '<button class="nbd-source-del" data-sid="' + src.id + '" title="Remove source">✕</button>';
+    list.appendChild(div);
+    attachSourceEvents(div);
+    updateSelectionBar();
+  }
+
+  // Source events (view + delete)
+  function attachSourceEvents(el) {
+    const delBtn = el.querySelector('.nbd-source-del');
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sid = delBtn.dataset.sid;
+        if (!confirm('Remove this source?')) return;
+        try {
+          await fetch('/api/notebook/' + NB_ID + '/source/' + sid + '/delete', { method: 'POST' });
+          el.remove();
+          updateSelectionBar();
+        } catch {}
+      });
+    }
+    const infoArea = el.querySelector('.nbd-source-info');
+    if (infoArea) {
+      infoArea.addEventListener('click', async () => {
+        const sid = el.dataset.sourceId;
+        try {
+          const resp = await fetch('/api/notebook/' + NB_ID + '/source/' + sid);
+          const data = await resp.json();
+          if (data.ok) {
+            document.getElementById('sourceViewTitle').textContent = data.source.title;
+            document.getElementById('sourceViewContent').innerHTML = '<pre class="nbd-source-pre">' + escapeHtml(data.source.content) + '</pre>';
+            document.getElementById('sourceViewModal').style.display = 'flex';
+          }
+        } catch {}
+      });
+    }
+  }
+  document.querySelectorAll('.nbd-source-item').forEach(el => attachSourceEvents(el));
+
+  // Source view modal close
+  document.getElementById('sourceViewClose').addEventListener('click', () => { document.getElementById('sourceViewModal').style.display = 'none'; });
+  document.getElementById('sourceViewModal').addEventListener('click', (e) => { if (e.target.id === 'sourceViewModal') e.target.style.display = 'none'; });
+
+  // ---- Studio: Flashcard state ----
+  let flashcards = [];
+  let fcIndex = 0;
+
+  function showFlashcard(idx) {
+    if (!flashcards.length) return;
+    fcIndex = idx;
+    document.getElementById('fcCardInner').classList.remove('fc-flipped');
+    document.getElementById('fcQuestion').textContent = flashcards[idx].q || '';
+    document.getElementById('fcAnswer').textContent = flashcards[idx].a || '';
+    document.getElementById('fcCounter').textContent = (idx + 1) + ' / ' + flashcards.length;
+    document.getElementById('fcPrev').disabled = idx === 0;
+    document.getElementById('fcNext').disabled = idx === flashcards.length - 1;
+  }
+
+  document.getElementById('fcCard').addEventListener('click', () => {
+    document.getElementById('fcCardInner').classList.toggle('fc-flipped');
+  });
+  document.getElementById('fcPrev').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (fcIndex > 0) showFlashcard(fcIndex - 1);
+  });
+  document.getElementById('fcNext').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (fcIndex < flashcards.length - 1) showFlashcard(fcIndex + 1);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (document.getElementById('flashcardModal').style.display !== 'flex') return;
+    if (e.key === 'ArrowLeft' && fcIndex > 0) showFlashcard(fcIndex - 1);
+    if (e.key === 'ArrowRight' && fcIndex < flashcards.length - 1) showFlashcard(fcIndex + 1);
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('fcCardInner').classList.toggle('fc-flipped');
+    }
+  });
+
+  document.getElementById('flashcardModalClose').addEventListener('click', () => { document.getElementById('flashcardModal').style.display = 'none'; });
+  document.getElementById('flashcardModal').addEventListener('click', (e) => { if (e.target.id === 'flashcardModal') e.target.style.display = 'none'; });
+
+  // Mind map modal
+  document.getElementById('mindmapModalClose').addEventListener('click', () => {
+    document.getElementById('mindmapModal').style.display = 'none';
+    document.querySelector('#mindmapModal .nbd-modal').classList.remove('nbd-modal-expanded');
+    document.getElementById('mindmapExpandBtn').textContent = '⛶';
+    document.getElementById('mindmapExpandBtn').title = 'Expand view';
+  });
+  document.getElementById('mindmapModal').addEventListener('click', (e) => {
+    if (e.target.id !== 'mindmapModal') return;
+    e.target.style.display = 'none';
+    document.querySelector('#mindmapModal .nbd-modal').classList.remove('nbd-modal-expanded');
+    document.getElementById('mindmapExpandBtn').textContent = '⛶';
+    document.getElementById('mindmapExpandBtn').title = 'Expand view';
+  });
+  document.getElementById('mindmapExpandBtn').addEventListener('click', () => {
+    const modal = document.querySelector('#mindmapModal .nbd-modal');
+    const btn = document.getElementById('mindmapExpandBtn');
+    const expanded = modal.classList.toggle('nbd-modal-expanded');
+    btn.textContent = expanded ? '🗗' : '⛶';
+    btn.title = expanded ? 'Shrink view' : 'Expand view';
+  });
+
+  function showMindmapImage(b64, mime) {
+    const container = document.getElementById('mindmapContainer');
+    container.innerHTML = '<img src="data:' + (mime || 'image/png') + ';base64,' + b64 + '" alt="Mind Map" style="max-width:100%;height:auto;border-radius:12px;">';
+  }
+
+  function openFlashcardModal(content, title) {
+    try {
+      flashcards = JSON.parse(content);
+      if (!Array.isArray(flashcards) || !flashcards.length) throw new Error('empty');
+    } catch {
+      alert('Could not parse flashcard data. Try regenerating.');
+      return;
+    }
+    document.getElementById('flashcardModalTitle').textContent = title || 'Flashcards';
+    showFlashcard(0);
+    document.getElementById('flashcardModal').style.display = 'flex';
+  }
+
+  function openMindmapModal(b64, mime, title) {
+    document.getElementById('mindmapModalTitle').textContent = title || 'Mind Map';
+    document.querySelector('#mindmapModal .nbd-modal').classList.remove('nbd-modal-expanded');
+    document.getElementById('mindmapExpandBtn').textContent = '⛶';
+    document.getElementById('mindmapExpandBtn').title = 'Expand view';
+    document.getElementById('mindmapModal').style.display = 'flex';
+    showMindmapImage(b64, mime);
+  }
+
+  // Studio button click handler
+  document.querySelectorAll('.nbd-studio-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const type = btn.dataset.type;
+
+      // Quiz: redirect to quiz page with auto-filled subject/topic
+      if (type === 'quiz') {
+        const sourceIds = getSelectedSourceIds();
+        btn.disabled = true;
+        btn.querySelector('.nbd-studio-btn-label').textContent = 'Loading...';
+        try {
+          const resp = await fetch('/api/notebook/' + NB_ID + '/quiz-info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_ids: sourceIds })
+          });
+          const data = await resp.json();
+          let url = '/quiz';
+          if (data.ok) {
+            const params = new URLSearchParams();
+            if (data.subject) params.set('subject', data.subject);
+            if (data.topic) params.set('topic', data.topic);
+            if (params.toString()) url += '?' + params.toString();
+          }
+          window.location.href = url;
+        } catch {
+          window.location.href = '/quiz';
+        }
+        btn.disabled = false;
+        btn.querySelector('.nbd-studio-btn-label').textContent = 'Quiz';
+        return;
+      }
+
+      // All other studio types: generate
+      const sourceIds = getSelectedSourceIds();
+      btn.disabled = true;
+      const origLabel = btn.querySelector('.nbd-studio-btn-label').textContent;
+      btn.querySelector('.nbd-studio-btn-label').textContent = 'Generating...';
+      try {
+        const resp = await fetch('/api/notebook/' + NB_ID + '/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ output_type: type, source_ids: sourceIds })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          const outputType = data.output_type || type;
+          addOutputToList({ id: data.output_id, title: origLabel, output_type: outputType });
+
+          if (outputType === 'flashcards') {
+            openFlashcardModal(data.content, origLabel);
+          } else if (outputType === 'mind_map' && data.image_b64) {
+            openMindmapModal(data.image_b64, data.mime_type, origLabel);
+          } else {
+            document.getElementById('outputModalTitle').textContent = origLabel;
+            document.getElementById('outputModalContent').innerHTML = data.content_html;
+            document.getElementById('outputModal').style.display = 'flex';
+            if (typeof window.renderLatex === 'function') window.renderLatex(document.getElementById('outputModalContent'));
+          }
+        } else {
+          alert(data.error || 'Generation failed');
+        }
+      } catch { alert('Network error'); }
+      btn.disabled = false;
+      btn.querySelector('.nbd-studio-btn-label').textContent = origLabel;
+    });
+  });
+
+  function addOutputToList(o) {
+    const empty = document.getElementById('outputEmpty');
+    if (empty) empty.remove();
+    const list = document.getElementById('outputList');
+    const div = document.createElement('div');
+    div.className = 'nbd-output-item';
+    div.dataset.outputId = o.id;
+    div.dataset.outputType = o.output_type || '';
+    div.innerHTML =
+      '<div class="nbd-output-name" data-oid="' + o.id + '" data-otype="' + (o.output_type || '') + '">' + escapeHtml(o.title) + '</div>' +
+      '<button class="nbd-output-del" data-oid="' + o.id + '" title="Delete output">✕</button>';
+    list.prepend(div);
+    attachOutputEvents(div);
+  }
+
+  function attachOutputEvents(el) {
+    const nameEl = el.querySelector('.nbd-output-name');
+    const delBtn = el.querySelector('.nbd-output-del');
+    if (nameEl) {
+      nameEl.addEventListener('click', async () => {
+        const oid = nameEl.dataset.oid;
+        const otype = nameEl.dataset.otype || el.dataset.outputType || '';
+        try {
+          const resp = await fetch('/api/notebook/' + NB_ID + '/output/' + oid);
+          const data = await resp.json();
+          if (data.ok) {
+            const outputType = data.output.output_type || otype;
+            if (outputType === 'flashcards') {
+              openFlashcardModal(data.output.content, data.output.title);
+            } else if (outputType === 'mind_map' && data.output.image_b64) {
+              openMindmapModal(data.output.image_b64, data.output.mime_type, data.output.title);
+            } else {
+              document.getElementById('outputModalTitle').textContent = data.output.title;
+              document.getElementById('outputModalContent').innerHTML = data.output.content_html;
+              document.getElementById('outputModal').style.display = 'flex';
+              if (typeof window.renderLatex === 'function') window.renderLatex(document.getElementById('outputModalContent'));
+            }
+          }
+        } catch {}
+      });
+    }
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const oid = delBtn.dataset.oid;
+        if (!confirm('Delete this output?')) return;
+        try {
+          await fetch('/api/notebook/' + NB_ID + '/output/' + oid + '/delete', { method: 'POST' });
+          el.remove();
+        } catch {}
+      });
+    }
+  }
+  document.querySelectorAll('.nbd-output-item').forEach(el => attachOutputEvents(el));
+
+  // Output modal close
+  document.getElementById('outputModalClose').addEventListener('click', () => { document.getElementById('outputModal').style.display = 'none'; });
+  document.getElementById('outputModal').addEventListener('click', (e) => { if (e.target.id === 'outputModal') e.target.style.display = 'none'; });
+
+  // ---- Notes ----
+  let editingNoteId = null;
+  const noteModal = document.getElementById('noteModal');
+  document.getElementById('addNoteBtn').addEventListener('click', () => {
+    editingNoteId = null;
+    document.getElementById('noteModalTitle').textContent = 'Add Note';
+    document.getElementById('noteTitle').value = '';
+    document.getElementById('noteContent').value = '';
+    noteModal.style.display = 'flex';
+  });
+  document.getElementById('noteModalClose').addEventListener('click', () => { noteModal.style.display = 'none'; });
+  noteModal.addEventListener('click', (e) => { if (e.target === noteModal) noteModal.style.display = 'none'; });
+
+  document.getElementById('noteSave').addEventListener('click', async () => {
+    const title = document.getElementById('noteTitle').value.trim() || 'Untitled note';
+    const content = document.getElementById('noteContent').value.trim();
+    const saveBtn = document.getElementById('noteSave');
+    saveBtn.disabled = true;
+
+    if (editingNoteId) {
+      try {
+        await fetch('/api/notebook/' + NB_ID + '/note/' + editingNoteId + '/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content })
+        });
+        const noteEl = document.querySelector('.nbd-note-item[data-note-id="' + editingNoteId + '"] .nbd-note-name');
+        if (noteEl) noteEl.textContent = title;
+      } catch {}
+    } else {
+      try {
+        const resp = await fetch('/api/notebook/' + NB_ID + '/note/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content })
+        });
+        const data = await resp.json();
+        if (data.ok) addNoteToList({ id: data.note_id, title });
+      } catch {}
+    }
+    saveBtn.disabled = false;
+    noteModal.style.display = 'none';
+  });
+
+  function addNoteToList(note) {
+    const list = document.getElementById('noteList');
+    const div = document.createElement('div');
+    div.className = 'nbd-note-item';
+    div.dataset.noteId = note.id;
+    div.innerHTML =
+      '<div class="nbd-note-name">' + escapeHtml(note.title) + '</div>' +
+      '<button class="nbd-note-del" data-nid="' + note.id + '" title="Delete note">✕</button>';
+    list.prepend(div);
+    attachNoteEvents(div);
+  }
+
+  function attachNoteEvents(el) {
+    const delBtn = el.querySelector('.nbd-note-del');
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const nid = delBtn.dataset.nid;
+        if (!confirm('Delete this note?')) return;
+        try {
+          await fetch('/api/notebook/' + NB_ID + '/note/' + nid + '/delete', { method: 'POST' });
+          el.remove();
+        } catch {}
+      });
+    }
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.nbd-note-del')) return;
+      editingNoteId = el.dataset.noteId;
+      document.getElementById('noteModalTitle').textContent = 'Edit Note';
+      document.getElementById('noteTitle').value = el.querySelector('.nbd-note-name').textContent;
+      document.getElementById('noteContent').value = '';
+      noteModal.style.display = 'flex';
+    });
+  }
+  document.querySelectorAll('.nbd-note-item').forEach(el => attachNoteEvents(el));
+
+  // ---- Rename notebook ----
+  const nbTitleEl = document.getElementById('nbTitle');
+  if (nbTitleEl) {
+    nbTitleEl.addEventListener('click', () => {
+      const newTitle = prompt('Rename notebook:', nbTitleEl.textContent);
+      if (newTitle && newTitle.trim()) {
+        fetch('/api/notebook/' + NB_ID + '/title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTitle.trim() })
+        });
+        nbTitleEl.textContent = newTitle.trim();
+      }
+    });
+  }
+
+  // ---- Drag & drop for upload area ----
+  if (uploadArea) {
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => { uploadArea.classList.remove('dragover'); });
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        sourceFile.files = e.dataTransfer.files;
+        sourceFile.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

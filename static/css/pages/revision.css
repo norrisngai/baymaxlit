@@ -1,0 +1,89 @@
+.studybar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,.12);
+}
+.studybar-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.studybar-title { font-weight: 700; }
+.studybar-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.studybar-right { display: flex; align-items: center; gap: 10px; }
+.studybar-right button { margin-top: 0; }
+
+.coinpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  position: relative;
+}
+.coinpill-label { color: var(--muted); font-size: 12px; }
+.coinpill-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.coinpill.gain { animation: coinPop 520ms ease; }
+.coinpill.gain::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 1px solid rgba(229,231,235,.25);
+  opacity: 0;
+  animation: coinRing 520ms ease;
+  pointer-events: none;
+}
+@keyframes coinPop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.08); }
+  70% { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
+@keyframes coinRing {
+  0% { opacity: 0; transform: scale(0.92); }
+  35% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+.studybtn { padding: 8px 10px; border-radius: 10px; }
+.studybar.running .studybtn#timerStartBtn { opacity: .6; }
+
+.coin-float {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  font-weight: 800;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 0) scale(0.96);
+  transition: opacity 120ms ease;
+  z-index: 9999;
+}
+.coin-float.show { animation: coinFloatUp 900ms ease forwards; }
+@keyframes coinFloatUp {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.96); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -24px) scale(1.02); }
+}
+
+#revisionPane .composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+#revisionPane .attachbar {
+  position: sticky;
+  bottom: 66px;
+  z-index: 2;
+  background: var(--panel);
+}

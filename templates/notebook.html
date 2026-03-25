@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/notebook.css') }}" />{% endblock %}
+{% block body %}
+<div class="nb-home">
+  <div class="nb-home-header">
+    <h1 class="nb-home-title">📓 Notebook</h1>
+    <p class="nb-home-sub">Upload lecture notes, select textbooks, and generate study materials — just like NotebookLM.</p>
+  </div>
+
+  <div class="nb-home-actions">
+    <form method="POST" action="{{ url_for('notebook_new') }}" class="nb-new-form">
+      <input type="text" name="title" placeholder="New notebook title..." class="nb-new-input" />
+      <button type="submit" class="nb-new-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        Create
+      </button>
+    </form>
+  </div>
+
+  {% if notebooks %}
+  <div class="nb-grid">
+    {% for nb in notebooks %}
+    <a class="nb-card" href="{{ url_for('notebook_detail', notebook_id=nb.id) }}">
+      <div class="nb-card-icon">📓</div>
+      <div class="nb-card-body">
+        <div class="nb-card-title">{{ nb.title }}</div>
+        <div class="nb-card-meta">Updated {{ nb.updated_at[:10] }}</div>
+      </div>
+      <button type="button" class="nb-card-delete" data-nb-id="{{ nb.id }}" data-nb-title="{{ nb.title }}" title="Delete notebook" aria-label="Delete notebook">✕</button>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="nb-empty">
+    <div class="nb-empty-icon">📓</div>
+    <h3>No notebooks yet</h3>
+    <p>Create your first notebook to start organising your study materials.</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  document.querySelectorAll('.nb-card-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const nbId = btn.dataset.nbId;
+      const title = btn.dataset.nbTitle || 'this notebook';
+      if (!confirm('Delete "' + title + '" and all its sources/outputs?')) return;
+      try {
+        const resp = await fetch('/notebook/' + nbId + '/delete', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          const card = btn.closest('.nb-card');
+          if (card) card.remove();
+          if (document.querySelectorAll('.nb-card').length === 0) {
+            location.reload();
+          }
+        }
+      } catch {}
+    });
+  });
+})();
+</script>
+{% endblock %}

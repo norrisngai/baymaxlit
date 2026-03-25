@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/check_work.css') }}" />{% endblock %}
+{% block body %}
+<div class="cw-wrap">
+
+  <!-- ── Setup panel ──────────────────────────────────────────────── -->
+  <div class="cw-setup" id="cwSetup">
+    <div class="cw-card">
+      <h2 class="cw-title">Check Your Work</h2>
+      <p class="muted" style="margin-bottom:22px;">Upload a photo of your homework and let AI mark it like a real teacher.</p>
+
+      <!-- Work type toggle -->
+      <div class="cw-form-group">
+        <label class="cw-label">Type of Work</label>
+        <div class="cw-toggle-row">
+          <button type="button" class="cw-toggle-btn active" data-type="worksheet">📝 Worksheet</button>
+          <button type="button" class="cw-toggle-btn" data-type="writing">✍️ Writing Task</button>
+        </div>
+      </div>
+
+      <!-- Topic / question (writing only) -->
+      <div class="cw-form-group" id="topicGroup" style="display:none;">
+        <label class="cw-label">Writing Topic / Question</label>
+        <input type="text" id="cwTopic" class="cw-input" placeholder="e.g. Write about the importance of friendship…">
+      </div>
+
+      <!-- Upload zone -->
+      <div class="cw-form-group">
+        <label class="cw-label">Upload Photo</label>
+        <div class="cw-upload-zone" id="uploadZone">
+          <input type="file" id="cwFile" accept="image/*">
+          <div class="cw-upload-icon">📷</div>
+          <div class="cw-upload-text">Drag &amp; drop or <strong>tap to upload</strong></div>
+          <div class="cw-file-name" id="fileName"></div>
+        </div>
+        <div class="cw-preview" id="previewWrap" style="display:none;">
+          <img id="previewImg" src="" alt="preview">
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button type="button" class="cw-submit-btn" id="cwSubmit" disabled>
+        <span id="submitText">Check My Work</span>
+        <span id="submitSpinner" class="cw-spinner" style="display:none;"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Results panel (hidden initially) ─────────────────────────── -->
+  <div class="cw-results" id="cwResults" style="display:none;">
+    <div class="cw-results-header">
+      <h2>📋 Teacher's Marking</h2>
+      <button class="cw-back-btn" id="cwBack">← Check Another</button>
+    </div>
+
+    <!-- Transcription (what AI read from the photo) -->
+    <div class="cw-transcription" id="cwTranscription" style="display:none;">
+      <h3>📖 What AI Read From Your Work</h3>
+      <pre id="cwTranscriptionText"></pre>
+    </div>
+
+    <!-- Annotated image -->
+    <div class="cw-annotated-wrap" id="annotatedWrap" style="display:none;">
+      <img id="annotatedImg" src="" alt="annotated work">
+    </div>
+
+    <!-- Overall feedback -->
+    <div class="cw-overall" id="cwOverall">
+      <h3>💬 Overall Feedback</h3>
+      <p id="cwOverallText"></p>
+    </div>
+
+    <!-- Mistakes + Tips in grid -->
+    <div class="cw-feedback-grid">
+      <div class="cw-feedback-card" id="cwMistakesCard">
+        <h3>🔴 Key Mistakes</h3>
+        <ul id="cwMistakesList"></ul>
+      </div>
+      <div class="cw-feedback-card" id="cwTipsCard">
+        <h3>💡 Tips for Improvement</h3>
+        <ul id="cwTipsList"></ul>
+      </div>
+    </div>
+
+    <!-- Detailed annotations -->
+    <div class="cw-annotations-list" id="cwAnnotations"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const setupPanel  = document.getElementById('cwSetup');
+  const resultsPanel = document.getElementById('cwResults');
+  const submitBtn   = document.getElementById('cwSubmit');
+  const submitText  = document.getElementById('submitText');
+  const submitSpinner = document.getElementById('submitSpinner');
+  const fileInput   = document.getElementById('cwFile');
+  const fileName    = document.getElementById('fileName');
+  const previewWrap = document.getElementById('previewWrap');
+  const previewImg  = document.getElementById('previewImg');
+  const topicGroup  = document.getElementById('topicGroup');
+  const topicInput  = document.getElementById('cwTopic');
+  const backBtn     = document.getElementById('cwBack');
+  const uploadZone  = document.getElementById('uploadZone');
+
+  let workType = 'worksheet';
+
+  // ── Type toggle ──────────────────────────────────────────────────
+  document.querySelectorAll('.cw-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cw-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      workType = btn.dataset.type;
+      topicGroup.style.display = workType === 'writing' ? '' : 'none';
+      updateSubmit();
+    });
+  });
+
+  // ── File upload ──────────────────────────────────────────────────
+  fileInput.addEventListener('change', handleFile);
+
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      handleFile();
+    }
+  });
+
+  function handleFile() {
+    const f = fileInput.files[0];
+    if (!f) { fileName.textContent = ''; previewWrap.style.display = 'none'; updateSubmit(); return; }
+    fileName.textContent = f.name;
+    if (f.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = e => { previewImg.src = e.target.result; previewWrap.style.display = ''; };
+      reader.readAsDataURL(f);
+    } else {
+      previewWrap.style.display = 'none';
+    }
+    updateSubmit();
+  }
+
+  function updateSubmit() {
+    const hasFile = fileInput.files && fileInput.files.length > 0;
+    const needsTopic = workType === 'writing';
+    const hasTopic = topicInput.value.trim().length > 0;
+    submitBtn.disabled = !hasFile || (needsTopic && !hasTopic);
+  }
+
+  topicInput.addEventListener('input', updateSubmit);
+
+  // ── Submit ───────────────────────────────────────────────────────
+  submitBtn.addEventListener('click', async () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+
+    submitBtn.disabled = true;
+    submitText.textContent = 'Analysing…';
+    submitSpinner.style.display = 'inline-block';
+
+    const formData = new FormData();
+    formData.append('file', f);
+    formData.append('is_writing', workType === 'writing' ? 'true' : 'false');
+    if (workType === 'writing') formData.append('topic', topicInput.value.trim());
+
+    try {
+      const resp = await fetch('/api/check-work/analyse', { method: 'POST', body: formData });
+      const data = await resp.json();
+      if (!data.ok) { alert(data.error || 'Analysis failed.'); return; }
+      renderResults(data);
+    } catch (err) {
+      alert('Network error. Please try again.');
+    } finally {
+      submitBtn.disabled = false;
+      submitText.textContent = 'Check My Work';
+      submitSpinner.style.display = 'none';
+    }
+  });
+
+  // ── Back button ──────────────────────────────────────────────────
+  backBtn.addEventListener('click', () => {
+    resultsPanel.style.display = 'none';
+    setupPanel.style.display = '';
+  });
+
+  // ── Render results ───────────────────────────────────────────────
+  function renderResults(data) {
+    setupPanel.style.display = 'none';
+    resultsPanel.style.display = '';
+
+    // Transcription
+    const transDiv = document.getElementById('cwTranscription');
+    const transText = document.getElementById('cwTranscriptionText');
+    if (data.transcription) {
+      transText.textContent = data.transcription;
+      transDiv.style.display = '';
+    } else {
+      transDiv.style.display = 'none';
+    }
+
+    // Annotated image
+    const annotatedWrap = document.getElementById('annotatedWrap');
+    const annotatedImg  = document.getElementById('annotatedImg');
+    if (data.annotated_image) {
+      annotatedImg.src = 'data:image/png;base64,' + data.annotated_image;
+      annotatedWrap.style.display = '';
+    } else {
+      annotatedWrap.style.display = 'none';
+    }
+
+    // Overall feedback
+    document.getElementById('cwOverallText').textContent = data.overall_feedback || 'No feedback available.';
+
+    // Big mistakes
+    const mistakesList = document.getElementById('cwMistakesList');
+    mistakesList.innerHTML = '';
+    (data.big_mistakes || []).forEach(m => {
+      const li = document.createElement('li');
+      li.textContent = m;
+      mistakesList.appendChild(li);
+    });
+    document.getElementById('cwMistakesCard').style.display = (data.big_mistakes || []).length ? '' : 'none';
+
+    // Tips
+    const tipsList = document.getElementById('cwTipsList');
+    tipsList.innerHTML = '';
+    (data.tips || []).forEach(t => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      tipsList.appendChild(li);
+    });
+    document.getElementById('cwTipsCard').style.display = (data.tips || []).length ? '' : 'none';
+
+    // Detailed annotation list
+    const annContainer = document.getElementById('cwAnnotations');
+    annContainer.innerHTML = '';
+    (data.annotations || []).forEach(ann => {
+      const div = document.createElement('div');
+      div.className = 'cw-ann-item';
+
+      const badge = document.createElement('span');
+      badge.className = 'cw-ann-badge ' + (ann.type || 'mistake');
+      badge.textContent = ann.type === 'good' ? '✓ Good' : ann.type === 'highlight' ? '★ Note' : '✗ Error';
+
+      const detail = document.createElement('div');
+      detail.className = 'cw-ann-detail';
+
+      const label = document.createElement('div');
+      label.className = 'cw-ann-label';
+      label.textContent = ann.label || '';
+
+      const comment = document.createElement('div');
+      comment.className = 'cw-ann-comment';
+      comment.textContent = ann.comment || '';
+
+      detail.appendChild(label);
+      detail.appendChild(comment);
+
+      if (ann.corrected_text) {
+        const correction = document.createElement('div');
+        correction.className = 'cw-ann-correction';
+        correction.innerHTML = '→ <span class="right">' + escapeHtml(ann.corrected_text) + '</span>';
+        detail.appendChild(correction);
+      }
+
+      div.appendChild(badge);
+      div.appendChild(detail);
+      annContainer.appendChild(div);
+    });
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+})();
+</script>
+{% endblock %}

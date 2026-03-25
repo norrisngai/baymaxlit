@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.db
+.env
+.python-version
+local_secrets.py
+google_oauth_client.json
+client_secret_*.json
+.DS_Store
+.vscode/

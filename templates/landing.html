@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/landing.css') }}" />{% endblock %}
+
+{% block body %}
+<div class="landing-page">
+  <div class="landing-hero">
+    <div class="landing-badge">
+      <div class="landing-badge-icon" aria-hidden="true"></div>
+      <div class="landing-badge-title">Baymax-lite</div>
+      <div class="landing-badge-sub">Beta</div>
+    </div>
+
+    <h1 class="landing-title">
+    Study beyond imagination,<br />
+    <span class="landing-title-muted">one prompt</span> away.
+    </h1>
+
+    <form class="landing-prompt" id="landingPromptForm" method="POST" action="{{ url_for('chat_quick') }}" aria-label="Open chat">
+      <div class="landing-prompt-left" aria-hidden="true">✦</div>
+      <input class="landing-prompt-input" id="landingPromptInput" name="message" placeholder="Plan my week and suggest revision sessions..." autocomplete="off" />
+      <button type="submit" class="landing-prompt-btn" id="landingPromptBtn">Send →</button>
+    </form>
+
+    <div class="landing-sub">Type a prompt, then press Send.</div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const hero = document.querySelector('.landing-hero');
+    const form = document.getElementById('landingPromptForm');
+    const input = document.getElementById('landingPromptInput');
+    if (!hero || !form || !input) return;
+
+    function submitWithTransition() {
+      const text = String(input.value || '').trim();
+      if (!text) {
+        input.focus();
+        return;
+      }
+
+      hero.classList.add('landing-sending');
+
+      // Progressive enhancement: use View Transitions API when available.
+      if (document.startViewTransition) {
+        document.startViewTransition(() => {
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              form.submit();
+              resolve();
+            }, 160);
+          });
+        });
+        return;
+      }
+
+      setTimeout(() => form.submit(), 170);
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submitWithTransition();
+    });
+  })();
+</script>
+{% endblock %}

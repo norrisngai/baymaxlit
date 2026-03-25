@@ -1,0 +1,312 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/profile.css') }}" />{% endblock %}
+{% block body %}
+  <div class="dash-wrap">
+    <div class="dash-main">
+      <div class="dash-grid">
+        <!-- Column 1 -->
+        <div class="dash-col">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              Subject Mastery Profile
+            </div>
+            <div class="dash-card-body">
+              <p class="muted">Average quiz performance across the subjects you have taken.</p>
+              {% if profile_subject_metrics %}
+                <div class="subject-radar-shell">
+                  <div class="subject-radar-summary">
+                    <div class="subject-metric-card">
+                      <span class="subject-metric-label">Strongest</span>
+                      <strong class="subject-metric-value">{{ strongest_subject.subject }}</strong>
+                      <span class="subject-metric-meta">{{ '%.1f'|format(strongest_subject.score_percent) }}% average</span>
+                    </div>
+                    <div class="subject-metric-card">
+                      <span class="subject-metric-label">Needs attention</span>
+                      <strong class="subject-metric-value">{{ weakest_subject.subject }}</strong>
+                      <span class="subject-metric-meta">{{ '%.1f'|format(weakest_subject.score_percent) }}% average</span>
+                    </div>
+                    <div class="subject-metric-card">
+                      <span class="subject-metric-label">Overall quiz average</span>
+                      <strong class="subject-metric-value">{{ '%.1f'|format(subject_average_percent) }}%</strong>
+                      <span class="subject-metric-meta">{{ profile_subject_metrics|length }} subject{{ '' if profile_subject_metrics|length == 1 else 's' }}</span>
+                    </div>
+                  </div>
+                  <div class="subject-radar-frame">
+                    <div class="subject-radar-stage">
+                      <div class="subject-radar-title">Performance by Subject</div>
+                      <svg id="subjectRadarChart" class="subject-radar-chart" viewBox="0 0 720 430" aria-label="Subject mastery radar chart"></svg>
+                      <div class="subject-radar-key">
+                        <span class="subject-radar-key-line"></span>
+                        <span class="subject-radar-key-label">Average quiz performance</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="subject-radar-legend">
+                    {% for item in profile_subject_metrics %}
+                      <div class="subject-radar-legend-item">
+                        <span class="subject-radar-legend-name">{{ item.subject }}</span>
+                        <span class="subject-radar-legend-score">{{ '%.1f'|format(item.score_percent) }}%</span>
+                        <span class="subject-radar-legend-attempts">{{ item.attempts }} quiz{{ '' if item.attempts == 1 else 'zes' }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% else %}
+                <div class="subject-radar-empty">
+                  <div class="subject-radar-empty-title">No subject quiz data yet</div>
+                  <div class="subject-radar-empty-copy">Complete a few quizzes and this chart will map your strongest and weakest subjects automatically.</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-header">Study Time</div>
+            <div class="dash-card-body" style="text-align: center;">
+              <p class="muted">Today's study Target</p>
+              <div style="position: relative; width: 170px; height: 170px; margin: 20px auto;">
+                <svg width="170" height="170" viewBox="0 0 170 170" style="transform: rotate(-90deg);">
+                  <circle cx="85" cy="85" r="70" fill="none" stroke="#625CCE" stroke-width="14" />
+                  <circle cx="85" cy="85" r="70" fill="none" stroke="#89B5E5" stroke-width="14" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="{{ 439.8 - (439.8 * study_progress_percent / 100) }}" />
+                </svg>
+                <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <span style="font-size:13px;" class="muted">Total</span>
+                  <strong style="color:var(--text); font-size:18px; margin-top: 4px;">{{ "%.1f"|format(study_hours) }} hr / 2 hr</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-header">Classmates</div>
+            <div class="dash-card-body">
+              <p class="muted">Students in Class {{ user.class_level }}</p>
+              <div class="classmate-list">
+                {% for mate in classmates %}
+                  <div class="classmate-item">
+                    <img src="https://ui-avatars.com/api/?name={{ mate.name|urlencode }}&background=random" alt="{{ mate.name }}" />
+                    <div>{{ mate.name.split(' ')[0] if mate.name else 'N/A' }}</div>
+                  </div>
+                {% else %}
+                  <div class="placeholder-box" style="flex:1; padding:20px 0;">No classmates yet</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Column 2 -->
+        <div class="dash-col">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              Interests
+            </div>
+            <div class="dash-card-body">
+              <p class="muted">Based on hobbies and tasks</p>
+              <div class="placeholder-box" style="height:160px; display:flex; align-items:center; justify-content:center;">[ Bar Chart ]</div>
+            </div>
+          </div>
+          
+          <div class="dash-card">
+            <div class="dash-card-header">
+              Upcoming Schedules
+            </div>
+            <div class="dash-card-body">
+              <p class="muted">Your nearest {{ upcoming_schedules|length }} schedules</p>
+              <div class="dash-task-list">
+                {% if upcoming_schedules %}
+                  {% for item in upcoming_schedules %}
+                    <a href="{{ url_for('schedule') }}" class="dash-task-item" style="border-left: 4px solid var(--primary);">
+                      <div style="flex:1; min-width:0;">
+                        <div class="dash-task-title">{{ item.subject }}</div>
+                        <div class="dash-task-time">{{ item.date }} &bull; {{ item.start_time }} - {{ item.end_time }}</div>
+                      </div>
+                      <div class="dash-task-arrow">&gt;</div>
+                    </a>
+                  {% endfor %}
+                {% else %}
+                  <p class="muted" style="margin-top:20px; font-size:14px;">No upcoming schedules.</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-header">Rewards</div>
+            <div class="dash-card-body">
+              <p class="muted">Badges and achievements</p>
+              <div class="placeholder-box" style="height:80px; display:flex; align-items:center; justify-content:center;">[ Reward Icons ]</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 3 (Sidebar) -->
+    <aside class="dash-sidebar">
+      <div class="dash-prof-head">
+        <img src="https://ui-avatars.com/api/?name={{ user.name|urlencode }}&size=120&background=random" class="dash-avatar" alt="{{ user.name }}" />
+        <h2 class="dash-name">{{ user.name or 'Student' }}</h2>
+        <div class="dash-handle">{{ user.email }}</div>
+      </div>
+      
+      <hr class="dash-divider" />
+      
+      <div class="dash-info-list">
+        <div class="dash-info-item">
+          <span class="icon">📅</span>
+          <span>Joined {{ user.created_at[:10] }}</span>
+        </div>
+        <div class="dash-info-item">
+          <span class="icon">🏫</span>
+          <span>Class {{ user.class_level or 'Not Set' }}</span>
+        </div>
+      </div>
+
+      <hr class="dash-divider" />
+
+      <div class="dash-about">
+        <strong>About Me</strong>
+        <p>Hi! I'm {{ user.name or 'a student' }}. I'm currently studying in Class {{ user.class_level or 'TBD' }}. I love learning new things!</p>
+      </div>
+
+      <div class="dash-coin-block">
+        <div class="coin-label">Coin Counter
+        </div>
+        <div class="coin-big" style="display:flex; align-items:center; gap:16px;">
+          <img src="https://ui-avatars.com/api/?name={{ user.name|urlencode }}&size=60&background=random" style="border-radius:12px; width:48px; border:2px solid rgba(255,255,255,0.3);" />
+          <div style="flex:1; text-align:left;">
+            <div style="font-size:12px; opacity:0.9; line-height:1; font-weight:600;">COIN BALANCE</div>
+            <div class="val" style="margin-top:6px;">{{ coins }}</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  {% if profile_subject_metrics %}
+    <script>
+      (function () {
+        const subjectMetrics = {{ profile_subject_metrics|tojson }};
+        const svg = document.getElementById('subjectRadarChart');
+        if (!svg || !Array.isArray(subjectMetrics) || !subjectMetrics.length) {
+          return;
+        }
+
+        const svgns = 'http://www.w3.org/2000/svg';
+        const width = 720;
+        const height = 430;
+        const cx = 360;
+        const cy = 205;
+        const radius = 150;
+        const levels = 5;
+
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        const make = (tag, attrs = {}, text) => {
+          const node = document.createElementNS(svgns, tag);
+          Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+          if (text !== undefined) {
+            node.textContent = text;
+          }
+          return node;
+        };
+        const polarPoint = (index, scale = 1) => {
+          const angle = (-Math.PI / 2) + (index * Math.PI * 2 / subjectMetrics.length);
+          return {
+            x: cx + Math.cos(angle) * radius * scale,
+            y: cy + Math.sin(angle) * radius * scale,
+          };
+        };
+
+        svg.replaceChildren();
+
+        for (let level = 1; level <= levels; level += 1) {
+          const scale = level / levels;
+          const points = subjectMetrics.map((_, index) => {
+            const point = polarPoint(index, scale);
+            return `${point.x},${point.y}`;
+          }).join(' ');
+          svg.appendChild(make('polygon', {
+            points,
+            fill: level === levels ? 'rgba(255,255,255,0.015)' : 'rgba(255,255,255,0.006)',
+            stroke: level === levels ? 'rgba(148,163,184,0.52)' : 'rgba(148,163,184,0.24)',
+            'stroke-width': level === levels ? '1.4' : '1',
+          }));
+        }
+
+        for (let level = 1; level <= levels; level += 1) {
+          const y = cy - radius * (level / levels);
+          svg.appendChild(make('text', {
+            x: cx - 18,
+            y: y + 4,
+            fill: 'rgba(226,232,240,0.92)',
+            'font-size': '18',
+            'font-weight': '600',
+            'text-anchor': 'end',
+          }, `${level * 20}%`));
+        }
+
+        svg.appendChild(make('text', {
+          x: cx - 18,
+          y: cy + 6,
+          fill: 'rgba(226,232,240,0.92)',
+          'font-size': '18',
+          'font-weight': '600',
+          'text-anchor': 'end',
+        }, '0%'));
+
+        subjectMetrics.forEach((item, index) => {
+          const edge = polarPoint(index, 1);
+          svg.appendChild(make('line', {
+            x1: cx,
+            y1: cy,
+            x2: edge.x,
+            y2: edge.y,
+            stroke: 'rgba(148,163,184,0.3)',
+            'stroke-width': '1.6',
+          }));
+
+          const label = polarPoint(index, 1.22);
+          let anchor = 'middle';
+          if (label.x < cx - 20) anchor = 'end';
+          if (label.x > cx + 20) anchor = 'start';
+          svg.appendChild(make('text', {
+            x: label.x,
+            y: label.y,
+            fill: '#e2e8f0',
+            'font-size': '20',
+            'font-weight': '600',
+            'text-anchor': anchor,
+          }, item.subject));
+        });
+
+        const dataPoints = subjectMetrics.map((item, index) => {
+          const normalized = clamp(Number(item.score_percent) || 0, 0, 100) / 100;
+          const point = polarPoint(index, normalized);
+          return `${point.x},${point.y}`;
+        }).join(' ');
+
+        svg.appendChild(make('polygon', {
+          points: dataPoints,
+          fill: 'rgba(245, 158, 11, 0.26)',
+          stroke: 'rgba(251, 191, 36, 0.98)',
+          'stroke-width': '3.2',
+          'stroke-linejoin': 'round',
+        }));
+
+        subjectMetrics.forEach((item, index) => {
+          const normalized = clamp(Number(item.score_percent) || 0, 0, 100) / 100;
+          const point = polarPoint(index, normalized);
+          svg.appendChild(make('circle', {
+            cx: point.x,
+            cy: point.y,
+            r: '5.5',
+            fill: '#f8fafc',
+            stroke: '#fbbf24',
+            'stroke-width': '2.4',
+          }));
+        });
+      }());
+    </script>
+  {% endif %}
+{% endblock %}

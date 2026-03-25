@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/auth.css') }}" />{% endblock %}
+{% block body %}
+<div class="auth">
+  <h1>Create account</h1>
+
+  <form method="POST" class="card">
+    <label>Email</label>
+    <input name="email" type="email" required />
+
+    <label>Password</label>
+    <input name="password" type="password" required />
+
+    <label>Role</label>
+    <select name="role" id="role">
+      <option value="student">Student</option>
+      <option value="teacher">Teacher</option>
+    </select>
+
+    <div id="studentFields">
+      <label>Name</label>
+      <input name="name" placeholder="e.g. Alex" />
+
+      <label>Class</label>
+      <input name="class_level" id="classLevel" placeholder="e.g. 5A" />
+
+      <div id="electivesBox" style="display:none; margin-top:10px;">
+        <label>Elective subjects (Form 4+)</label>
+        <div class="chips">
+          {% for s in elective_choices %}
+            <label class="chip">
+              <input type="checkbox" name="electives" value="{{ s }}" />
+              <span>{{ s }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="muted" style="margin-top:6px;">Core subjects are always included.</div>
+      </div>
+
+      <label>Interests (pick up to 8)</label>
+      <div class="chips">
+        {% for i in interest_choices %}
+          <label class="chip">
+            <input type="checkbox" name="interests" value="{{ i }}" />
+            <span>{{ i }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="submit">Create account</button>
+  </form>
+
+  <div class="muted">Already have an account? <a class="link" href="{{ url_for('login') }}">Login</a></div>
+</div>
+
+<script>
+  const role = document.getElementById('role');
+  const studentFields = document.getElementById('studentFields');
+  const classLevel = document.getElementById('classLevel');
+  const electivesBox = document.getElementById('electivesBox');
+
+  function formNumberFromClassLevel(v) {
+    const s = String(v || '').trim();
+    const m = s.match(/^\s*(?:F|FORM)?\s*(\d+)/i);
+    if (!m) return 0;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function updateElectives() {
+    const isStudent = role.value === 'student';
+    const formNo = formNumberFromClassLevel(classLevel ? classLevel.value : '');
+    electivesBox.style.display = (isStudent && formNo >= 4) ? 'block' : 'none';
+  }
+
+  function update() {
+    studentFields.style.display = role.value === 'student' ? 'block' : 'none';
+    updateElectives();
+  }
+  role.addEventListener('change', update);
+  if (classLevel) classLevel.addEventListener('input', updateElectives);
+  update();
+</script>
+{% endblock %}

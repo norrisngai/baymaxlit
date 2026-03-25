@@ -1,0 +1,1167 @@
+{% extends 'base.html' %}
+{% block page_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/schedule.css') }}" />{% endblock %}
+{% block body %}
+<div class="page schedule-page" data-view="{{ view }}" data-today="{{ today_iso }}" data-ym="{{ ym }}" data-date="{{ date if view == 'day' else '' }}" data-student-form="{{ student_form | default('5', true) }}">
+  <div class="schedule-split">
+    <input type="checkbox" id="scheduleChatCollapse" class="schedule-chatcheck" hidden />
+    <div class="schedule-left">
+  {% if view == 'day' %}
+    <div class="schedule-top">
+      <a class="link" href="{{ url_for('schedule', ym=ym) }}">← Back</a>
+      <div class="schedule-month-title">{{ date }}</div>
+      <div class="schedule-top-actions">
+        {% if google_connected %}
+          <form method="POST" action="{{ url_for('google_disconnect') }}" style="margin:0; display:inline-block">
+            <button type="submit">Disconnect Google</button>
+          </form>
+          <button type="button" id="syncBtn">Sync to Google</button>
+        {% else %}
+          <a class="link" href="{{ url_for('google_connect') }}">Connect Google Calendar</a>
+        {% endif %}
+        <button type="button" id="generateBtn">Generate</button>
+        <button type="button" id="deleteAiBtn" title="Delete AI generated timetable">Delete</button>
+        <button type="button" id="editBtn" title="Manual edit">✎</button>
+      </div>
+    </div>
+
+    {% if deadlines %}
+      <div class="card" style="margin-top:12px;">
+        <div style="font-weight:700">Deadlines</div>
+        <div class="muted" style="margin-top:6px; white-space:pre-wrap">{% for d in deadlines %}{{ d.subject }} • {{ d.item_type }} (due)\n{% endfor %}</div>
+      </div>
+    {% endif %}
+
+    <div class="schedule-timetable-wrap" id="scheduleTimetableWrap">
+      <div class="schedule-timetable-content">
+        <div class="schedule-daywrap">
+          <div class="schedule-timecol">
+            {% for h in hours %}
+              <div class="schedule-hour">{{ h }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="schedule-timeline" data-height="{{ timeline_height }}">
+            {% for h in hour_lines %}
+              <div class="schedule-line" data-top="{{ h.top }}"></div>
+            {% endfor %}
+
+            {% for e in events %}
+              <button type="button" class="schedule-block" data-id="{{ e.id }}" data-date="{{ e.date }}" data-start="{{ e.start_time }}" data-end="{{ e.end_time }}" data-subject="{{ e.subject }}" data-task-type="{{ e.task_type }}" data-top="{{ e.top }}" data-height="{{ e.height }}" data-detail='{{ e.detail|tojson }}'>
+                <div class="schedule-block-title">{{ e.title }}</div>
+                <div class="schedule-block-time">{{ e.time }}</div>
+              </button>
+            {% endfor %}
+          </div>
+
+          <div>
+            <div class="schedule-detail" id="detailBox" hidden>
+              <div class="schedule-detail-title">Details</div>
+              <div class="muted" id="detailBody" style="white-space:pre-wrap"></div>
+            </div>
+
+            <div class="schedule-detail" id="manualBox" hidden style="margin-top:12px;">
+              <div class="schedule-detail-title">Manual edit</div>
+              <div class="muted" style="margin-top:6px;">Date: <span id="manualDate">{{ date }}</span></div>
+
+          <div style="margin-top:10px; display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="margin-top:0;">Start</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input id="manualStart" type="text" inputmode="numeric" placeholder="20:00" autocomplete="off" />
+                <button type="button" id="manualStartToggle" title="Pick time" style="margin-top:0; padding: 10px 12px;">▼</button>
+              </div>
+              <div id="manualStartDrop" hidden style="margin-top:8px;">
+                <select id="manualStartPick" size="6" style="width:100%;"></select>
+              </div>
+            </div>
+            <div>
+              <label style="margin-top:0;">End</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input id="manualEnd" type="text" inputmode="numeric" placeholder="21:00" autocomplete="off" />
+                <button type="button" id="manualEndToggle" title="Pick time" style="margin-top:0; padding: 10px 12px;">▼</button>
+              </div>
+              <div id="manualEndDrop" hidden style="margin-top:8px;">
+                <select id="manualEndPick" size="6" style="width:100%;"></select>
+              </div>
+            </div>
+          </div>
+
+          <label>What</label>
+          <input id="manualSubject" placeholder="Meeting with Nacho" />
+
+          <label>Type</label>
+          <select id="manualType">
+            <option value="study">study</option>
+            <option value="homework">homework</option>
+            <option value="quiz">quiz</option>
+            <option value="test">test</option>
+            <option value="exam">exam</option>
+          </select>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+            <button type="button" id="manualAddBtn" style="margin-top:0;">Add</button>
+            <button type="button" id="manualUpdateBtn" style="margin-top:0;" disabled>Update selected</button>
+            <button type="button" id="manualDeleteBtn" style="margin-top:0;" disabled>Delete selected</button>
+          </div>
+          <div class="muted" id="manualHint" style="margin-top:8px;">Click an event block to select it.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="schedule-loading-overlay" id="scheduleLoadingOverlay" aria-hidden="true">
+        <div class="schedule-loading-spinner" aria-label="Loading"></div>
+      </div>
+    </div>
+
+  {% elif view == 'week' %}
+    {% include 'schedule_view_week.html' %}
+
+  {% else %}
+    {% include 'schedule_view_month.html' %}
+  {% endif %}
+    </div>
+
+    <aside class="schedule-right" id="scheduleChatPanel">
+      <label class="schedule-chat-handle" for="scheduleChatCollapse" role="button" aria-label="Toggle chat" title="Toggle chat">
+        <span class="when-open">›</span><span class="when-closed">‹</span>
+      </label>
+      <div class="schedule-chat-head">
+        <div class="schedule-chat-title">Chat</div>
+        <div class="muted">Ask me to edit your calendar</div>
+      </div>
+
+      <div class="schedule-chat-messages" id="scheduleChatMessages">
+        {% for m in schedule_chat_messages %}
+          {% if not (m.role == 'assistant' and (m.content or '').startswith('(System)')) %}
+            <div class="msgrow {% if m.role == 'user' %}user{% else %}assistant{% endif %}">
+              <div class="bubble">
+                <div class="role">{% if m.role == 'user' %}You{% else %}Baymax-lite{% endif %}</div>
+                <div class="content">{{ m.content }}</div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <form class="composer" id="scheduleChatForm" data-chat-id="{{ schedule_chat_id }}">
+        <input id="scheduleChatInput" placeholder="Ask to add/move/remove an event..." autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </aside>
+  </div>
+
+  <div class="task-drawer" id="taskDrawer" aria-hidden="true">
+    <div class="task-drawer-head">
+      <div style="min-width:0;">
+        <div class="task-drawer-title" id="taskDrawerTitle">Task details</div>
+        <div class="task-drawer-sub" id="taskDrawerSub">Click a timetable block to view details</div>
+      </div>
+      <button type="button" class="iconbtn" id="taskDrawerClose" aria-label="Close">✕</button>
+    </div>
+
+    <div class="task-drawer-body">
+      <div class="task-drawer-grid">
+        <div class="task-drawer-label">Date</div>
+        <div class="task-drawer-value" id="taskDrawerDate">—</div>
+
+        <div class="task-drawer-label">Time</div>
+        <div class="task-drawer-value" id="taskDrawerTime">—</div>
+
+        <div class="task-drawer-label">What to do</div>
+        <div class="task-drawer-value" id="taskDrawerWhat">—</div>
+
+        <div class="task-drawer-label" id="taskDrawerDeadlineLabel">Deadline</div>
+        <div class="task-drawer-value" id="taskDrawerDeadline">—</div>
+      </div>
+
+      <div class="task-drawer-section" id="taskDrawerRevision" hidden>
+        <div class="task-drawer-section-title">Revision</div>
+        <div class="muted" style="margin-top:6px;">What to review</div>
+        <ul class="task-drawer-list" id="taskDrawerReviewList">
+          <li class="muted">Loading topics...</li>
+        </ul>
+
+        <form method="POST" action="{{ url_for('revision_new') }}" id="studyWithMeForm" style="margin-top:16px;">
+          <input type="hidden" name="subject" id="revisionSubject" value="" />
+          <input type="hidden" name="topics" id="revisionTopics" value="" />
+          <input type="hidden" name="study_guide" id="revisionStudyGuide" value="" />
+          <input type="hidden" name="student_form" id="revisionStudentForm" value="" />
+          <input type="hidden" name="schedule_item_id" id="revisionScheduleItemId" value="" />
+          <input type="hidden" name="chat_id" id="revisionChatId" value="" />
+          <button type="submit" style="width:100%;">Study with me</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-settings-drawer" id="scheduleSettingsDrawer">
+    <div class="drawer-header">
+      <h3>Schedule Settings</h3>
+      <button class="close-btn" onclick="window.__closeSettingsDrawer()">&times;</button>
+    </div>
+    <div class="drawer-content">
+      <h4>Planning Windows</h4>
+      <p>Set the time ranges when the AI is allowed to schedule study sessions.</p>
+      <div class="form-group">
+        <label for="weekdayWindows">Weekday Windows</label>
+        <textarea id="weekdayWindows" rows="3" placeholder="e.g., 17:00-19:00\n20:00-22:30"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="weekendWindows">Weekend Windows</label>
+        <textarea id="weekendWindows" rows="4" placeholder="e.g., 09:00-12:00\n14:00-18:00"></textarea>
+      </div>
+      <button id="saveSettingsBtn" class="btn-primary">Save Settings</button>
+    </div>
+  </div>
+  <button class="schedule-settings-fab" id="settingsFab" onclick="window.__openSettingsDrawer()">
+    <i class="fas fa-cog"></i>
+  </button>
+
+  <script>
+    (function(){
+      const msgEl = document.getElementById('scheduleChatMessages');
+      const form = document.getElementById('scheduleChatForm');
+      const input = document.getElementById('scheduleChatInput');
+      if (!msgEl || !form || !input) return;
+
+      msgEl.scrollTop = msgEl.scrollHeight;
+      const sendBtn = form.querySelector('button[type="submit"]');
+
+      function scrollToBottom() {
+        msgEl.scrollTop = msgEl.scrollHeight;
+      }
+
+      function appendBubble(role, text, extraClass) {
+        const row = document.createElement('div');
+        row.className = `msgrow ${role} ${extraClass || ''}`.trim();
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+
+        const roleDiv = document.createElement('div');
+        roleDiv.className = 'role';
+        roleDiv.textContent = role === 'user' ? 'You' : 'Baymax-lite';
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'content';
+        contentDiv.textContent = text;
+
+        bubble.appendChild(roleDiv);
+        bubble.appendChild(contentDiv);
+        row.appendChild(bubble);
+        msgEl.appendChild(row);
+        scrollToBottom();
+        return row;
+      }
+
+      function appendTyping() {
+        const row = document.createElement('div');
+        row.className = 'msgrow assistant typing';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        const roleDiv = document.createElement('div');
+        roleDiv.className = 'role';
+        roleDiv.textContent = 'Baymax-lite';
+        const dots = document.createElement('div');
+        dots.className = 'typing-dots';
+        dots.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+        bubble.appendChild(roleDiv);
+        bubble.appendChild(dots);
+        row.appendChild(bubble);
+        msgEl.appendChild(row);
+        scrollToBottom();
+        return row;
+      }
+
+      function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const chatId = form.dataset.chatId;
+        const text = (input.value || '').trim();
+        if (!text) return;
+
+        input.value = '';
+        input.focus();
+        sendBtn.disabled = true;
+        input.disabled = true;
+
+        appendBubble('user', text);
+        const typingRow = appendTyping();
+        const started = performance.now();
+
+        try {
+          const resp = await fetch('/api/schedule/chat/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, message: text })
+          });
+          const data = await resp.json().catch(() => ({}));
+
+          const elapsed = performance.now() - started;
+          if (elapsed < 900) await wait(900 - elapsed);
+
+          typingRow.remove();
+          if (!resp.ok || !data.ok) {
+            appendBubble('assistant', data.error || 'Sorry, something went wrong.');
+            return;
+          }
+
+          appendBubble('assistant', data.reply || '(no response)');
+
+          if (data.changed) {
+            // Reload to reflect calendar edits.
+            await wait(400);
+            location.reload();
+          }
+        } catch (err) {
+          const elapsed = performance.now() - started;
+          if (elapsed < 900) await wait(900 - elapsed);
+          typingRow.remove();
+          appendBubble('assistant', 'Sorry, I could not reach the server.');
+        } finally {
+          sendBtn.disabled = false;
+          input.disabled = false;
+          input.focus();
+        }
+      });
+    })();
+  </script>
+
+<script>
+  // Store student form for study guide generation.
+  // Pulled from a data-* attribute to avoid Jinja-in-JS parse errors.
+  (function(){
+    const root = document.querySelector('.schedule-page');
+    const v = (root && root.dataset && root.dataset.studentForm) ? String(root.dataset.studentForm).trim() : '';
+    window.__currentUserForm = v || '5';
+  })();
+
+  // Collapse / expand the schedule chatbot (persisted).
+  (function(){
+    const key = 'scheduleChatCollapsed';
+    const checkbox = document.getElementById('scheduleChatCollapse');
+    if (!checkbox) return;
+    checkbox.checked = localStorage.getItem(key) === '1';
+    checkbox.addEventListener('change', () => {
+      localStorage.setItem(key, checkbox.checked ? '1' : '0');
+      // Week layout depends on container size.
+      window.dispatchEvent(new Event('resize'));
+    });
+  })();
+
+  // Week view: layout event blocks to fit 00:00–22:00 without scrolling.
+  (function(){
+    const root = document.querySelector('.schedule-page');
+    if (!root) return;
+    if (root.dataset.view !== 'week') return;
+
+    const MINUTES_END = 24 * 60;
+
+    function toMin(t) {
+      const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return 0;
+      return (parseInt(m[1], 10) * 60) + parseInt(m[2], 10);
+    }
+
+    function layoutWeek() {
+      const grid = document.getElementById('weekGrid');
+      if (!grid) return;
+
+      const rect = grid.getBoundingClientRect();
+      const h = rect.height;
+      if (!h || h < 80) return;
+
+      const pxPerMin = h / MINUTES_END;
+      document.querySelectorAll('.week-daycol').forEach(col => {
+        col.querySelectorAll('.week-event').forEach(btn => {
+          const st = toMin(btn.dataset.start);
+          const et = toMin(btn.dataset.end);
+          const start = Math.max(0, Math.min(MINUTES_END, st));
+          const end = Math.max(0, Math.min(MINUTES_END, et));
+          if (end <= start) {
+            btn.style.display = 'none';
+            return;
+          }
+          btn.style.display = '';
+          const top = start * pxPerMin;
+          const height = Math.max(18, (end - start) * pxPerMin);
+          btn.style.top = `${top}px`;
+          btn.style.height = `${height}px`;
+
+          // Improve readability for short-duration blocks.
+          btn.classList.remove('is-compact', 'is-tiny');
+          if (height < 28) {
+            btn.classList.add('is-tiny');
+          } else if (height < 44) {
+            btn.classList.add('is-compact');
+          }
+        });
+      });
+    }
+
+    window.addEventListener('resize', layoutWeek);
+    layoutWeek();
+    setTimeout(layoutWeek, 50);
+  })();
+
+  // Week view: deadline dots (teacher-assigned tasks due that day).
+  (function(){
+    const root = document.querySelector('.schedule-page');
+    if (!root) return;
+    if (root.dataset.view !== 'week') return;
+
+    function closeAll() {
+      document.querySelectorAll('.week-deadline-pop').forEach(pop => {
+        pop.hidden = true;
+      });
+      document.querySelectorAll('.week-deadline-dot').forEach(btn => {
+        btn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.querySelectorAll('.week-deadline-dot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const date = btn.dataset.date;
+        const pop = document.querySelector(`.week-deadline-pop[data-date="${CSS.escape(date)}"]`);
+        if (!pop) return;
+
+        const isOpen = !pop.hidden;
+        closeAll();
+        if (!isOpen) {
+          pop.hidden = false;
+          btn.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+
+    document.addEventListener('click', () => closeAll());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAll();
+    });
+  })();
+
+  function showDetail(text) {
+    const box = document.getElementById('detailBox');
+    const body = document.getElementById('detailBody');
+    if (!box || !body) return;
+    box.hidden = false;
+    body.textContent = text;
+  }
+
+  // --- Task drawer (bottom-right slide-up details UI) ---
+  (function(){
+    const drawer = document.getElementById('taskDrawer');
+    const closeBtn = document.getElementById('taskDrawerClose');
+    const titleEl = document.getElementById('taskDrawerTitle');
+    const subEl = document.getElementById('taskDrawerSub');
+    const dateEl = document.getElementById('taskDrawerDate');
+    const timeEl = document.getElementById('taskDrawerTime');
+    const whatEl = document.getElementById('taskDrawerWhat');
+    const deadlineEl = document.getElementById('taskDrawerDeadline');
+    const revBox = document.getElementById('taskDrawerRevision');
+    const reviewList = document.getElementById('taskDrawerReviewList');
+    const revSubjectInput = document.getElementById('revisionSubject');
+    const revTopicsInput = document.getElementById('revisionTopics');
+    const revStudyGuideInput = document.getElementById('revisionStudyGuide');
+
+    if (!drawer || !closeBtn || !titleEl || !subEl || !dateEl || !timeEl || !whatEl || !deadlineEl || !revBox || !reviewList || !revSubjectInput || !revTopicsInput || !revStudyGuideInput) return;
+
+    function setText(el, v) {
+      el.textContent = (v === undefined || v === null || String(v).trim() === '') ? '—' : String(v);
+    }
+
+    function isRevisionTask(taskType) {
+      const t = String(taskType || '').trim().toLowerCase();
+      return t === 'study' || t === 'revision';
+    }
+
+    function openDrawer() {
+      drawer.classList.add('open');
+      drawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+
+    function parseDetail(detailRaw) {
+      if (detailRaw === undefined || detailRaw === null) return {};
+      if (typeof detailRaw === 'object') return detailRaw;
+      const s = String(detailRaw);
+      // Try to extract a "Task id" from the existing string detail.
+      const m = s.match(/\bTask id:\s*(\d+)/i);
+      return { task_id: m ? Number(m[1]) : null, raw: s };
+    }
+
+    function setReviewTopics(topics, subject) {
+      reviewList.innerHTML = '';
+      
+      // Update hidden form fields for "study with me" button
+      if (revSubjectInput) {
+        revSubjectInput.value = subject || 'General';
+      }
+      
+      // Handle string input (loading message)
+      if (typeof topics === 'string') {
+        const li = document.createElement('li');
+        li.className = 'muted';
+        li.textContent = topics;
+        reviewList.appendChild(li);
+        // Don't clear topics when loading - keep previous value if any
+        return;
+      }
+      
+      const arr = Array.isArray(topics) ? topics : [];
+      if (!arr.length) {
+        const li = document.createElement('li');
+        li.className = 'muted';
+        li.textContent = 'No specific topics available';
+        reviewList.appendChild(li);
+        // Set topics to subject name as fallback
+        if (revTopicsInput) {
+          revTopicsInput.value = subject || '';
+        }
+        return;
+      }
+      
+      arr.forEach(t => {
+        const li = document.createElement('li');
+        li.textContent = String(t);
+        reviewList.appendChild(li);
+      });
+      
+      // Store topics as newline-separated string for the form
+      if (revTopicsInput) {
+        revTopicsInput.value = arr.map(t => `- ${t}`).join('\n');
+      }
+    }
+
+    closeBtn.addEventListener('click', closeDrawer);
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeDrawer();
+    });
+
+    window.__scheduleEditMode = false;
+
+    window.__openTaskDrawerFromElement = (el) => {
+      if (!el) return;
+      if (window.__scheduleEditMode) return;
+
+      const date = el.dataset.date || '';
+      const start = el.dataset.start || '';
+      const end = el.dataset.end || '';
+      const subject = el.dataset.subject || '';
+      const taskType = el.dataset.taskType || '';
+
+      let detailObj = {};
+      try {
+        detailObj = JSON.parse(el.dataset.detail || 'null') || {};
+      } catch {
+        detailObj = parseDetail(el.dataset.detail);
+      }
+
+      // If the parsed value is a string (common when data-detail was a JSON-encoded string),
+      // fall back to our regex parser so we can extract Task id.
+      if (typeof detailObj === 'string') {
+        detailObj = parseDetail(detailObj);
+      }
+
+      const title = subject ? subject : (el.querySelector('.schedule-block-title, .week-event-title')?.textContent || 'Task');
+      titleEl.textContent = title;
+      subEl.textContent = taskType ? `Type: ${taskType}` : 'Type: —';
+      setText(dateEl, date);
+      setText(timeEl, (start && end) ? `${start}–${end}` : (start || end || ''));
+      setText(whatEl, title);
+
+      // UI first: deadline is not wired yet.
+      const deadline = detailObj.deadline || detailObj.homework_deadline || detailObj.due_date;
+      setText(deadlineEl, deadline || '—');
+
+      const isRev = isRevisionTask(taskType);
+      revBox.hidden = !isRev;
+      if (isRev) {
+        // Instant: show precomputed topics from the schedule item's detail.
+        const topics = (detailObj && Array.isArray(detailObj.topics)) ? detailObj.topics : [];
+        setReviewTopics(topics, subject);
+
+        // Keep mapping to schedule session so clicking "Study with me" can generate the full guide for this session.
+        const scheduleItemIdInput = document.getElementById('revisionScheduleItemId');
+        const studentFormInput = document.getElementById('revisionStudentForm');
+        if (scheduleItemIdInput) scheduleItemIdInput.value = el.dataset.id ? String(el.dataset.id) : '';
+        if (studentFormInput) studentFormInput.value = String(document.querySelector('.schedule-page')?.dataset?.studentForm || '5');
+
+        // Ensure guide is generated only inside the revision chatbot.
+        if (revStudyGuideInput) revStudyGuideInput.value = '';
+        const chatIdInput = document.getElementById('revisionChatId');
+        if (chatIdInput) chatIdInput.value = '';
+      }
+
+      openDrawer();
+    };
+
+    async function fetchStudyGuide(subject, detailObj, start, end, scheduleItemId) {
+      // Calculate duration in minutes
+      let durationMinutes = 120; // default 2 hours
+      if (start && end) {
+        const [startH, startM] = start.split(':').map(Number);
+        const [endH, endM] = end.split(':').map(Number);
+        durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+      }
+
+      // Get student form from page data or session
+      const pageRoot = document.querySelector('.schedule-page');
+      const studentForm = (pageRoot && pageRoot.dataset && pageRoot.dataset.studentForm) ? pageRoot.dataset.studentForm : (window.__currentUserForm || '5');
+      const studentFormInput = document.getElementById('revisionStudentForm');
+      if (studentFormInput) studentFormInput.value = String(studentForm || '5');
+
+      const scope = detailObj.scope || detailObj.topic || subject;
+      const assignmentId = detailObj.task_id || null;
+
+      // Show loading state
+      setReviewTopics('Loading topics...', subject);
+
+      // Track which schedule session this guide belongs to.
+      const scheduleItemIdNum = scheduleItemId ? Number(scheduleItemId) : null;
+      const scheduleItemIdInput = document.getElementById('revisionScheduleItemId');
+      const chatIdInput = document.getElementById('revisionChatId');
+      if (scheduleItemIdInput) scheduleItemIdInput.value = scheduleItemIdNum ? String(scheduleItemIdNum) : '';
+      if (chatIdInput) chatIdInput.value = '';
+      
+      // Clear study guide
+      if (revStudyGuideInput) {
+        revStudyGuideInput.value = '';
+      }
+
+      try {
+        const response = await fetch('/schedule/api/schedule/study-guide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            student_form: studentForm,
+            subject: subject,
+            scope: scope,
+            duration_minutes: durationMinutes,
+            assignment_id: assignmentId,
+            schedule_item_id: scheduleItemIdNum,
+            topics_only: true
+          })
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch study guide');
+
+        const data = await response.json();
+        
+        console.log('Study guide API response:', data); // Debug log
+        
+        // Display topics
+        if (data.topics && data.topics.length > 0) {
+          setReviewTopics(data.topics, subject);
+        } else {
+          setReviewTopics([], subject);
+        }
+        
+        // Do not load the full study guide into the drawer.
+        // The full guide is generated when the student clicks "Study with me".
+        if (revStudyGuideInput) revStudyGuideInput.value = '';
+        if (chatIdInput) chatIdInput.value = '';
+      } catch (err) {
+        console.error('Study guide fetch error:', err);
+        setReviewTopics([], subject);
+        if (revStudyGuideInput) {
+          revStudyGuideInput.value = '';
+        }
+        const chatIdInput = document.getElementById('revisionChatId');
+        if (chatIdInput) chatIdInput.value = '';
+      }
+    }
+  })();
+
+  // Apply timeline sizes from data attributes.
+  const timeline = document.querySelector('.schedule-timeline');
+  if (timeline && timeline.dataset.height) {
+    timeline.style.height = `${Number(timeline.dataset.height) || 0}px`;
+  }
+
+  document.querySelectorAll('.schedule-line').forEach(el => {
+    const top = Number(el.dataset.top) || 0;
+    el.style.top = `${top}px`;
+  });
+
+  document.querySelectorAll('.schedule-block').forEach(el => {
+    const top = Number(el.dataset.top) || 0;
+    const height = Number(el.dataset.height) || 24;
+    el.style.top = `${top}px`;
+    el.style.height = `${height}px`;
+
+    // Improve readability for short-duration blocks.
+    el.classList.remove('is-compact', 'is-tiny');
+    if (height < 32) {
+      el.classList.add('is-tiny');
+    } else if (height < 54) {
+      el.classList.add('is-compact');
+    }
+
+    el.addEventListener('click', () => {
+      if (typeof window.__openTaskDrawerFromElement === 'function') {
+        window.__openTaskDrawerFromElement(el);
+      }
+    });
+  });
+
+  document.querySelectorAll('.week-event').forEach(el => {
+    el.addEventListener('click', () => {
+      if (typeof window.__openTaskDrawerFromElement === 'function') {
+        window.__openTaskDrawerFromElement(el);
+      }
+    });
+  });
+
+  async function postJson(url, payload) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || 'Request failed');
+    }
+    return data;
+  }
+
+  const generateBtn = document.getElementById('generateBtn');
+  if (generateBtn) {
+    generateBtn.addEventListener('click', async () => {
+      const root = document.querySelector('.schedule-page');
+      const deleteAiBtn = document.getElementById('deleteAiBtn');
+
+      generateBtn.disabled = true;
+      if (deleteAiBtn) deleteAiBtn.disabled = true;
+      if (root) root.classList.add('schedule-generating');
+      try {
+        await postJson('/api/schedule/generate', {});
+        location.reload();
+      } catch (e) {
+        alert(String(e.message || e));
+      } finally {
+        if (root) root.classList.remove('schedule-generating');
+        generateBtn.disabled = false;
+        if (deleteAiBtn) deleteAiBtn.disabled = false;
+      }
+    });
+  }
+
+  const deleteAiBtn = document.getElementById('deleteAiBtn');
+  if (deleteAiBtn) {
+    deleteAiBtn.addEventListener('click', async () => {
+      deleteAiBtn.disabled = true;
+      try {
+        await postJson('/api/schedule/ai/clear', {});
+        location.reload();
+      } catch (e) {
+        alert(String(e.message || e));
+      } finally {
+        deleteAiBtn.disabled = false;
+      }
+    });
+  }
+
+  const syncBtn = document.getElementById('syncBtn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async () => {
+      syncBtn.disabled = true;
+      try {
+        const data = await postJson('/api/google_calendar/sync', { days: 21 });
+        alert(`Synced. Created: ${data.created || 0}, Skipped: ${data.skipped || 0}`);
+      } catch (e) {
+        alert(String(e.message || e));
+      } finally {
+        syncBtn.disabled = false;
+      }
+    });
+  }
+
+  // Manual edit (pencil)
+  (function(){
+    const editBtn = document.getElementById('editBtn');
+    if (!editBtn) return;
+
+    const root = document.querySelector('.schedule-page');
+    const viewIsDay = (root && root.dataset.view === 'day');
+    const todayIso = (root && root.dataset.today) ? root.dataset.today : '';
+    const ym = (root && root.dataset.ym) ? root.dataset.ym : '';
+
+    function buildTimeOptions(selectEl) {
+      if (!selectEl) return;
+      if (selectEl.options && selectEl.options.length > 0) return;
+      for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 60; m += 15) {
+          const hh = String(h).padStart(2, '0');
+          const mm = String(m).padStart(2, '0');
+          const t = `${hh}:${mm}`;
+          const opt = document.createElement('option');
+          opt.value = t;
+          opt.textContent = t;
+          selectEl.appendChild(opt);
+        }
+      }
+    }
+
+    function wireTimePicker(inputEl, selectEl, toggleBtn, dropEl) {
+      if (!inputEl || !selectEl || !toggleBtn || !dropEl) return;
+      buildTimeOptions(selectEl);
+
+      toggleBtn.addEventListener('click', () => {
+        dropEl.hidden = !dropEl.hidden;
+        if (!dropEl.hidden) {
+          // Try to sync selection to typed value.
+          const v = (inputEl.value || '').trim();
+          if (v) selectEl.value = v;
+        }
+      });
+
+      function pick() {
+        inputEl.value = selectEl.value || '';
+        dropEl.hidden = true;
+      }
+
+      selectEl.addEventListener('change', pick);
+      selectEl.addEventListener('dblclick', pick);
+    }
+
+    if (!viewIsDay) {
+      const monthBox = document.getElementById('monthEditBox');
+      const dateOut = document.getElementById('monthEditDate');
+      const startIn = document.getElementById('monthEditStart');
+      const endIn = document.getElementById('monthEditEnd');
+      const startPick = document.getElementById('monthEditStartPick');
+      const endPick = document.getElementById('monthEditEndPick');
+      const startToggle = document.getElementById('monthEditStartToggle');
+      const endToggle = document.getElementById('monthEditEndToggle');
+      const startDrop = document.getElementById('monthEditStartDrop');
+      const endDrop = document.getElementById('monthEditEndDrop');
+      const whatIn = document.getElementById('monthEditWhat');
+      const addBtn = document.getElementById('monthEditAddBtn');
+      const delBtn = document.getElementById('monthEditDeleteBtn');
+      const hint = document.getElementById('monthEditHint');
+      if (!monthBox || !dateOut || !startIn || !endIn || !startPick || !endPick || !startToggle || !endToggle || !startDrop || !endDrop || !whatIn || !addBtn || !delBtn || !hint) return;
+
+      wireTimePicker(startIn, startPick, startToggle, startDrop);
+      wireTimePicker(endIn, endPick, endToggle, endDrop);
+
+      let editMode = false;
+      let selectedDate = todayIso || '';
+      let selectedPlanId = null;
+
+      function setDate(d) {
+        selectedDate = d || selectedDate;
+        dateOut.textContent = selectedDate;
+      }
+
+      function setSelectedPlan(id) {
+        selectedPlanId = id;
+        if (selectedPlanId) {
+          delBtn.hidden = false;
+        } else {
+          delBtn.hidden = true;
+        }
+      }
+
+      setDate(selectedDate);
+      setSelectedPlan(null);
+
+      editBtn.addEventListener('click', () => {
+        editMode = !editMode;
+        monthBox.hidden = !editMode;
+        setSelectedPlan(null);
+      });
+
+      // Clicking a day box selects date (and prevents navigation in edit mode).
+      document.querySelectorAll('.schedule-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          if (!editMode) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const d = cell.dataset.date || '';
+          setDate(d);
+          setSelectedPlan(null);
+        });
+      });
+
+      // Clicking a planned item selects it for delete.
+      document.querySelectorAll('.schedule-plan-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          if (!editMode) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const id = Number(item.dataset.planId || 0) || null;
+          setSelectedPlan(id);
+        });
+      });
+
+      async function postManual(url, body) {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {})
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      }
+
+      addBtn.addEventListener('click', async () => {
+        try {
+          await postManual('/api/schedule/manual/add', {
+            date: selectedDate,
+            start_time: (startIn.value || '').trim(),
+            end_time: (endIn.value || '').trim(),
+            subject: (whatIn.value || '').trim(),
+            task_type: 'study'
+          });
+          location.reload();
+        } catch (e) {
+          alert(String(e.message || e));
+        }
+      });
+
+      delBtn.addEventListener('click', async () => {
+        if (!selectedPlanId) return;
+        if (!confirm('Delete this planned item?')) return;
+        try {
+          await postManual('/api/schedule/manual/delete', { id: selectedPlanId });
+          location.reload();
+        } catch (e) {
+          alert(String(e.message || e));
+        }
+      });
+
+      return;
+    }
+
+    const manualBox = document.getElementById('manualBox');
+    const manualDate = document.getElementById('manualDate');
+    const manualStart = document.getElementById('manualStart');
+    const manualEnd = document.getElementById('manualEnd');
+    const manualStartPick = document.getElementById('manualStartPick');
+    const manualEndPick = document.getElementById('manualEndPick');
+    const manualStartToggle = document.getElementById('manualStartToggle');
+    const manualEndToggle = document.getElementById('manualEndToggle');
+    const manualStartDrop = document.getElementById('manualStartDrop');
+    const manualEndDrop = document.getElementById('manualEndDrop');
+    const manualSubject = document.getElementById('manualSubject');
+    const manualType = document.getElementById('manualType');
+    const addBtn = document.getElementById('manualAddBtn');
+    const updBtn = document.getElementById('manualUpdateBtn');
+    const delBtn = document.getElementById('manualDeleteBtn');
+    const hint = document.getElementById('manualHint');
+    if (!manualBox || !manualDate || !manualStart || !manualEnd || !manualStartPick || !manualEndPick || !manualStartToggle || !manualEndToggle || !manualStartDrop || !manualEndDrop || !manualSubject || !manualType || !addBtn || !updBtn || !delBtn || !hint) return;
+
+    wireTimePicker(manualStart, manualStartPick, manualStartToggle, manualStartDrop);
+    wireTimePicker(manualEnd, manualEndPick, manualEndToggle, manualEndDrop);
+
+    let editMode = false;
+    let selectedId = null;
+    let selectedDate = manualDate.textContent || ((root && root.dataset.date) ? root.dataset.date : '');
+
+    function setSelected(id) {
+      selectedId = id;
+      const enabled = !!selectedId;
+      updBtn.disabled = !enabled;
+      delBtn.disabled = !enabled;
+      hint.textContent = enabled ? `Selected item id: ${selectedId}` : 'Click an event block to select it.';
+    }
+
+    editBtn.addEventListener('click', () => {
+      editMode = !editMode;
+      manualBox.hidden = !editMode;
+      window.__scheduleEditMode = editMode;
+      if (editMode) setSelected(selectedId);
+    });
+
+    document.querySelectorAll('.schedule-block').forEach(el => {
+      el.addEventListener('click', () => {
+        if (!editMode) return;
+        const id = Number(el.dataset.id || 0) || null;
+        selectedDate = el.dataset.date || selectedDate;
+        manualDate.textContent = selectedDate;
+        manualStart.value = el.dataset.start || '';
+        manualEnd.value = el.dataset.end || '';
+        manualSubject.value = el.dataset.subject || '';
+        manualType.value = el.dataset.taskType || 'study';
+        setSelected(id);
+      });
+    });
+
+    async function postManual(url, body) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {})
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    addBtn.addEventListener('click', async () => {
+      try {
+        await postManual('/api/schedule/manual/add', {
+          date: selectedDate,
+          start_time: (manualStart.value || '').trim(),
+          end_time: (manualEnd.value || '').trim(),
+          subject: (manualSubject.value || '').trim(),
+          task_type: (manualType.value || 'study').trim(),
+        });
+        location.reload();
+      } catch (e) {
+        alert(String(e.message || e));
+      }
+    });
+
+    updBtn.addEventListener('click', async () => {
+      if (!selectedId) return;
+      try {
+        await postManual('/api/schedule/manual/update', {
+          id: selectedId,
+          patch: {
+            date: selectedDate,
+            start_time: (manualStart.value || '').trim(),
+            end_time: (manualEnd.value || '').trim(),
+            subject: (manualSubject.value || '').trim(),
+            task_type: (manualType.value || 'study').trim(),
+          }
+        });
+        location.reload();
+      } catch (e) {
+        alert(String(e.message || e));
+      }
+    });
+
+    delBtn.addEventListener('click', async () => {
+      if (!selectedId) return;
+      if (!confirm('Delete this item?')) return;
+      try {
+        await postManual('/api/schedule/manual/delete', { id: selectedId });
+        location.reload();
+      } catch (e) {
+        alert(String(e.message || e));
+      }
+    });
+  })();
+
+  // Settings drawer
+  (function(){
+    const drawer = document.getElementById('scheduleSettingsDrawer');
+    const fab = document.getElementById('settingsFab');
+    const closeBtn = drawer.querySelector('.close-btn');
+    const saveBtn = document.getElementById('saveSettingsBtn');
+    const weekdayWindowsInput = document.getElementById('weekdayWindows');
+    const weekendWindowsInput = document.getElementById('weekendWindows');
+
+    if (!drawer || !fab || !closeBtn || !saveBtn || !weekdayWindowsInput || !weekendWindowsInput) return;
+
+    function openDrawer() {
+      drawer.classList.add('open');
+      drawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+
+    fab.addEventListener('click', openDrawer);
+    closeBtn.addEventListener('click', closeDrawer);
+
+    // Load and parse existing settings from JSON
+    function loadSettings() {
+      const settingsJson = localStorage.getItem('scheduleSettings') || '{}';
+      try {
+        const settings = JSON.parse(settingsJson);
+        // Set default values if parsing fails or values are empty
+        const weekdayWindows = (settings.weekdayWindows || '').trim() || '17:00-19:00\n20:00-22:30';
+        const weekendWindows = (settings.weekendWindows || '').trim() || '09:00-12:00\n14:00-18:00';
+        weekdayWindowsInput.value = weekdayWindows;
+        weekendWindowsInput.value = weekendWindows;
+      } catch {
+        // Ignore JSON parsing errors, use defaults
+        weekdayWindowsInput.value = '17:00-19:00\n20:00-22:30';
+        weekendWindowsInput.value = '09:00-12:00\n14:00-18:00';
+      }
+    }
+
+    // Save settings to JSON
+    function saveSettings() {
+      const settings = {
+        weekdayWindows: (weekdayWindowsInput.value || '').trim(),
+        weekendWindows: (weekendWindowsInput.value || '').trim()
+      };
+      localStorage.setItem('scheduleSettings', JSON.stringify(settings));
+      alert('Settings saved');
+    }
+
+    // Initial load
+    loadSettings();
+
+    saveBtn.addEventListener('click', () => {
+      saveSettings();
+      closeDrawer();
+    });
+  })();
+
+  // Schedule Settings Drawer
+  const settingsDrawer = document.getElementById('scheduleSettingsDrawer');
+  const weekdayEl = document.getElementById('weekdayWindows');
+  const weekendEl = document.getElementById('weekendWindows');
+  const saveBtn = document.getElementById('saveSettingsBtn');
+
+  async function fetchAvailability() {
+    try {
+      const resp = await fetch('/api/schedule/availability');
+      const data = await resp.json();
+      if (data.ok) {
+        weekdayEl.value = (data.weekday_windows || []).join('\\n');
+        weekendEl.value = (data.weekend_windows || []).join('\\n');
+      }
+    } catch (e) {
+      console.error('Failed to load availability', e);
+    }
+  }
+
+  window.__openSettingsDrawer = () => {
+    if (settingsDrawer) {
+      fetchAvailability();
+      settingsDrawer.classList.add('is-open');
+    }
+  };
+
+  window.__closeSettingsDrawer = () => {
+    if (settingsDrawer) {
+      settingsDrawer.classList.remove('is-open');
+    }
+  };
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const weekday = weekdayEl.value.split('\\n').map(s => s.trim()).filter(Boolean);
+      const weekend = weekendEl.value.split('\\n').map(s => s.trim()).filter(Boolean);
+      try {
+        await postJson('/api/schedule/availability', {
+          weekday_windows: weekday,
+          weekend_windows: weekend
+        });
+        alert('Settings saved!');
+        window.__closeSettingsDrawer();
+      } catch (e) {
+        alert('Failed to save: ' + e.message);
+      }
+    });
+  }
+</script>
+{% endblock %}

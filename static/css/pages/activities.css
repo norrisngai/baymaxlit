@@ -1,0 +1,20 @@
+.activity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 12px; }
+.activity-card { display: flex; flex-direction: column; gap: 10px; }
+.activity-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.activity-card-details { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.activity-detail { margin: 0; }
+.activity-card-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.activity-type-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; text-transform: capitalize; white-space: nowrap; }
+.activity-type-badge.mandatory { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.3); }
+.activity-type-badge.optional { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
+.activity-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.activity-tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: rgba(255,255,255,.06); border: 1px solid var(--border); color: var(--muted); }
+.activity-detail-header { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.activity-tabs { display: flex; gap: 8px; margin-top: 16px; margin-bottom: 8px; }
+.activity-tab { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--muted); cursor: pointer; font-size: 14px; margin-top: 0; }
+.activity-tab:hover { background: rgba(255,255,255,.06); }
+.activity-tab.active { background: rgba(255,255,255,.08); color: var(--text); border-color: rgba(229,231,235,.35); }
+
+@media (max-width: 640px) {
+	.activity-grid { grid-template-columns: 1fr; }
+}
