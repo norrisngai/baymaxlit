@@ -8,3 +8,4 @@ python-docx==1.2.0
 google-auth-oauthlib
 google-api-python-client
 python-dateutil
+psycopg[binary]==3.2.10
