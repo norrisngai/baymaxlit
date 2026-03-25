@@ -4,112 +4,105 @@
   <div class="dash-wrap">
     <div class="dash-main">
       <div class="dash-grid">
-        <!-- Column 1 -->
-        <div class="dash-col">
-          <div class="dash-card">
-            <div class="dash-card-header">
-              Subject Mastery Profile
-            </div>
-            <div class="dash-card-body">
-              <p class="muted">Average quiz performance across the subjects you have taken.</p>
-              {% if profile_subject_metrics %}
-                <div class="subject-radar-shell">
-                  <div class="subject-radar-summary">
-                    <div class="subject-metric-card">
-                      <span class="subject-metric-label">Strongest</span>
-                      <strong class="subject-metric-value">{{ strongest_subject.subject }}</strong>
-                      <span class="subject-metric-meta">{{ '%.1f'|format(strongest_subject.score_percent) }}% average</span>
-                    </div>
-                    <div class="subject-metric-card">
-                      <span class="subject-metric-label">Needs attention</span>
-                      <strong class="subject-metric-value">{{ weakest_subject.subject }}</strong>
-                      <span class="subject-metric-meta">{{ '%.1f'|format(weakest_subject.score_percent) }}% average</span>
-                    </div>
-                    <div class="subject-metric-card">
-                      <span class="subject-metric-label">Overall quiz average</span>
-                      <strong class="subject-metric-value">{{ '%.1f'|format(subject_average_percent) }}%</strong>
-                      <span class="subject-metric-meta">{{ profile_subject_metrics|length }} subject{{ '' if profile_subject_metrics|length == 1 else 's' }}</span>
-                    </div>
-                  </div>
-                  <div class="subject-radar-frame">
-                    <div class="subject-radar-stage">
-                      <div class="subject-radar-title">Performance by Subject</div>
-                      <svg id="subjectRadarChart" class="subject-radar-chart" viewBox="0 0 720 430" aria-label="Subject mastery radar chart"></svg>
-                      <div class="subject-radar-key">
-                        <span class="subject-radar-key-line"></span>
-                        <span class="subject-radar-key-label">Average quiz performance</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="subject-radar-legend">
-                    {% for item in profile_subject_metrics %}
-                      <div class="subject-radar-legend-item">
-                        <span class="subject-radar-legend-name">{{ item.subject }}</span>
-                        <span class="subject-radar-legend-score">{{ '%.1f'|format(item.score_percent) }}%</span>
-                        <span class="subject-radar-legend-attempts">{{ item.attempts }} quiz{{ '' if item.attempts == 1 else 'zes' }}</span>
-                      </div>
-                    {% endfor %}
-                  </div>
-                </div>
-              {% else %}
-                <div class="subject-radar-empty">
-                  <div class="subject-radar-empty-title">No subject quiz data yet</div>
-                  <div class="subject-radar-empty-copy">Complete a few quizzes and this chart will map your strongest and weakest subjects automatically.</div>
-                </div>
-              {% endif %}
-            </div>
+        <div class="dash-card" style="grid-row: span 3;">
+          <div class="dash-card-header">
+            Subject Mastery Profile
           </div>
-
-          <div class="dash-card">
-            <div class="dash-card-header">Study Time</div>
-            <div class="dash-card-body" style="text-align: center;">
-              <p class="muted">Today's study Target</p>
-              <div style="position: relative; width: 150px; height: 150px; margin: 12px auto;">
-                <svg width="150" height="150" viewBox="0 0 170 170" style="transform: rotate(-90deg);">
-                  <circle cx="85" cy="85" r="70" fill="none" stroke="#625CCE" stroke-width="14" />
-                  <circle cx="85" cy="85" r="70" fill="none" stroke="#89B5E5" stroke-width="14" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="{{ 439.8 - (439.8 * study_progress_percent / 100) }}" />
-                </svg>
-                <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                  <span style="font-size:13px;" class="muted">Total</span>
-                  <strong style="color:var(--text); font-size:18px; margin-top: 4px;">{{ "%.1f"|format(study_hours) }} hr / 2 hr</strong>
+          <div class="dash-card-body">
+            <p class="muted">Average quiz performance across the subjects you have taken.</p>
+            {% if profile_subject_metrics %}
+              <div class="subject-radar-shell" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="subject-radar-summary">
+                  <div class="subject-metric-card">
+                    <span class="subject-metric-label">Strongest</span>
+                    <strong class="subject-metric-value">{{ strongest_subject.subject }}</strong>
+                    <span class="subject-metric-meta">{{ '%.1f'|format(strongest_subject.score_percent) }}% average</span>
+                  </div>
+                  <div class="subject-metric-card">
+                    <span class="subject-metric-label">Needs attention</span>
+                    <strong class="subject-metric-value">{{ weakest_subject.subject }}</strong>
+                    <span class="subject-metric-meta">{{ '%.1f'|format(weakest_subject.score_percent) }}% average</span>
+                  </div>
+                  <div class="subject-metric-card">
+                    <span class="subject-metric-label">Overall quiz average</span>
+                    <strong class="subject-metric-value">{{ '%.1f'|format(subject_average_percent) }}%</strong>
+                    <span class="subject-metric-meta">{{ profile_subject_metrics|length }} subject{{ '' if profile_subject_metrics|length == 1 else 's' }}</span>
+                  </div>
+                </div>
+                <div class="subject-radar-frame" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                  <div class="subject-radar-stage" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="subject-radar-title">Performance by Subject</div>
+                    <svg id="subjectRadarChart" class="subject-radar-chart" viewBox="0 0 720 430" aria-label="Subject mastery radar chart"></svg>
+                    <div class="subject-radar-key">
+                      <span class="subject-radar-key-line"></span>
+                      <span class="subject-radar-key-label">Average quiz performance</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="subject-radar-legend">
+                  {% for item in profile_subject_metrics %}
+                    <div class="subject-radar-legend-item">
+                      <span class="subject-radar-legend-name">{{ item.subject }}</span>
+                      <span class="subject-radar-legend-score">{{ '%.1f'|format(item.score_percent) }}%</span>
+                      <span class="subject-radar-legend-attempts">{{ item.attempts }} quiz{{ '' if item.attempts == 1 else 'zes' }}</span>
+                    </div>
+                  {% endfor %}
                 </div>
               </div>
+            {% else %}
+              <div class="subject-radar-empty">
+                <div class="subject-radar-empty-title">No subject quiz data yet</div>
+                <div class="subject-radar-empty-copy">Complete a few quizzes and this chart will map your strongest and weakest subjects automatically.</div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-header">
+            Upcoming Schedules
+          </div>
+          <div class="dash-card-body">
+            <p class="muted">Your nearest {{ upcoming_schedules|length }} schedules</p>
+            <div class="dash-task-list">
+              {% if upcoming_schedules %}
+                {% for item in upcoming_schedules %}
+                  <a href="{{ url_for('schedule') }}" class="dash-task-item" style="border-left: 4px solid var(--primary);">
+                    <div style="flex:1; min-width:0;">
+                      <div class="dash-task-title">{{ item.subject }}</div>
+                      <div class="dash-task-time">{{ item.date }} &bull; {{ item.start_time }} - {{ item.end_time }}</div>
+                    </div>
+                    <div class="dash-task-arrow">&gt;</div>
+                  </a>
+                {% endfor %}
+              {% else %}
+                <p class="muted" style="margin-top:10px; font-size:14px;">No upcoming schedules.</p>
+              {% endif %}
             </div>
           </div>
         </div>
 
-        <!-- Column 2 -->
-        <div class="dash-col">
-          <div class="dash-card">
-            <div class="dash-card-header">
-              Upcoming Schedules
-            </div>
-            <div class="dash-card-body">
-              <p class="muted">Your nearest {{ upcoming_schedules|length }} schedules</p>
-              <div class="dash-task-list">
-                {% if upcoming_schedules %}
-                  {% for item in upcoming_schedules %}
-                    <a href="{{ url_for('schedule') }}" class="dash-task-item" style="border-left: 4px solid var(--primary);">
-                      <div style="flex:1; min-width:0;">
-                        <div class="dash-task-title">{{ item.subject }}</div>
-                        <div class="dash-task-time">{{ item.date }} &bull; {{ item.start_time }} - {{ item.end_time }}</div>
-                      </div>
-                      <div class="dash-task-arrow">&gt;</div>
-                    </a>
-                  {% endfor %}
-                {% else %}
-                  <p class="muted" style="margin-top:20px; font-size:14px;">No upcoming schedules.</p>
-                {% endif %}
-              </div>
+        <div class="dash-card" style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 16px;">
+          <div>
+            <div class="dash-card-header" style="margin-bottom: 4px;">Study Time</div>
+            <p class="muted" style="margin: 0;">Today's study Target</p>
+          </div>
+          <div style="position: relative; width: 80px; height: 80px;">
+            <svg width="80" height="80" viewBox="0 0 170 170" style="transform: rotate(-90deg);">
+              <circle cx="85" cy="85" r="70" fill="none" stroke="#625CCE" stroke-width="14" />
+              <circle cx="85" cy="85" r="70" fill="none" stroke="#89B5E5" stroke-width="14" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="{{ 439.8 - (439.8 * study_progress_percent / 100) }}" />
+            </svg>
+            <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+              <strong style="color:var(--text); font-size:14px;">{{ "%.1f"|format(study_hours) }}h</strong>
             </div>
           </div>
+        </div>
 
-          <div class="dash-card">
-            <div class="dash-card-header">Rewards</div>
-            <div class="dash-card-body">
-              <p class="muted">Badges and achievements</p>
-              <div class="placeholder-box" style="height:80px; display:flex; align-items:center; justify-content:center;">[ Reward Icons ]</div>
-            </div>
+        <div class="dash-card">
+          <div class="dash-card-header">Rewards</div>
+          <div class="dash-card-body">
+            <p class="muted">Badges and achievements</p>
+            <div class="placeholder-box" style="height:60px; display:flex; align-items:center; justify-content:center; margin-top: 10px;">[ Reward Icons ]</div>
           </div>
         </div>
       </div>

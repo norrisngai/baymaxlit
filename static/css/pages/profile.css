@@ -1,9 +1,9 @@
 .dash-wrap { display: flex; max-width: 1360px; margin: 10px auto; gap: 14px; padding: 0 12px; align-items: stretch; justify-content: center; height: calc(100vh - 76px); overflow: hidden; }
 .dash-main { flex: 1; min-width: 0; max-width: 920px; overflow: hidden; }
 .dash-sidebar { width: 280px; background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(20, 30, 50, 0.4)); border: 1px solid rgba(255, 255, 255, 0.15); border-bottom-color: rgba(255, 255, 255, 0.05); border-right-color: rgba(255, 255, 255, 0.05); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.2); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); overflow: hidden; }
-.dash-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; height: 100%; }
-.dash-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-.dash-card { background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(20, 30, 50, 0.4)); border: 1px solid rgba(255, 255, 255, 0.15); border-bottom-color: rgba(255, 255, 255, 0.05); border-right-color: rgba(255, 255, 255, 0.05); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.2); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); flex: 1; min-height: 0; }
+.dash-grid { display: grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: auto auto 1fr; gap: 14px; height: 100%; }
+.dash-card { background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(20, 30, 50, 0.4)); border: 1px solid rgba(255, 255, 255, 0.15); border-bottom-color: rgba(255, 255, 255, 0.05); border-right-color: rgba(255, 255, 255, 0.05); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.2); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); min-height: 0; }
+
 .dash-card:hover { transform: none; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.2); }
 .dash-card-header { font-weight: 700; font-size: 14px; color: var(--text); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
 .dash-card-body { font-size: 12px; flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -17,7 +17,7 @@
 .subject-radar-frame { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 10px 12px; background: linear-gradient(180deg, rgba(20,30,50,.48), rgba(15,23,42,.2)); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); min-height: 0; }
 .subject-radar-stage { display: flex; flex-direction: column; align-items: center; }
 .subject-radar-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; text-align: center; }
-.subject-radar-chart { width: 100%; max-height: 250px; height: auto; display: block; }
+.subject-radar-chart { width: 100%; height: 100%; min-height: 180px; max-height: none; display: block; object-fit: contain; }
 .subject-radar-key { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; color: rgba(226,232,240,.9); font-size: 11px; font-weight: 600; }
 .subject-radar-key-line { width: 28px; height: 0; border-top: 3px solid #fbbf24; border-radius: 999px; box-shadow: 0 0 0 1px rgba(245,158,11,.2); }
 .subject-radar-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -55,7 +55,8 @@
 @media (max-width: 900px) {
 	.dash-wrap { flex-direction: column; height: auto; overflow: visible; }
 	.dash-sidebar { width: 100%; order: -1; }
-	.dash-grid { grid-template-columns: 1fr; }
+	.dash-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+	.dash-card { grid-row: auto !important; }
 	.subject-radar-summary { grid-template-columns: 1fr; }
 	.subject-radar-legend { grid-template-columns: 1fr; }
 }
