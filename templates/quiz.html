@@ -26,10 +26,11 @@
       </div>
 
       <div class="quiz-form-group">
-        <label class="quiz-label">Topic</label>
+        <label class="quiz-label" id="quizTopicLabel">Topic</label>
         <select id="quizTopic" class="quiz-select" disabled>
           <option value="">Select a subject first</option>
         </select>
+        <input type="text" id="quizTopicCustom" class="quiz-select" placeholder="請輸入你的自訂寫作題目..." style="display:none;">
       </div>
 
       <div class="quiz-form-group">
@@ -159,6 +160,7 @@
 
   const subjectSel    = document.getElementById('quizSubject');
   const topicSel      = document.getElementById('quizTopic');
+  const topicCustom   = document.getElementById('quizTopicCustom');
   const testModeGroup = document.getElementById('testModeGroup');
   const testModeRow   = document.getElementById('testModeRow');
   const diffBtns      = document.querySelectorAll('.quiz-diff-btn');
@@ -210,6 +212,10 @@
   function refreshTopics() {
     const subj = subjectSel.value;
     topicSel.innerHTML = '';
+    
+    topicSel.style.display = '';
+    topicCustom.style.display = 'none';
+
     if (!subj) {
       topicSel.innerHTML = '<option value="">Select a subject first</option>';
       topicSel.disabled = true;
@@ -237,6 +243,13 @@
     }
 
     // English writing still needs an explicit theme selection.
+    if (selectedMode === 'writing' && subj === 'Chinese') {
+      topicSel.style.display = 'none';
+      topicCustom.style.display = '';
+      updateGenBtn();
+      return;
+    }
+
     if (selectedMode === 'writing' && subj !== 'English') {
       topicSel.innerHTML = '<option value="General Writing">General Writing</option>';
       topicSel.disabled = false;
@@ -263,6 +276,7 @@
   }
 
   topicSel.addEventListener('change', updateGenBtn);
+  topicCustom.addEventListener('input', updateGenBtn);
 
   // ─── Auto-fill from URL params ───
   const urlParams = new URLSearchParams(window.location.search);
@@ -278,11 +292,16 @@
     }
     if (paramTopic) {
       setTimeout(() => {
-        for (let i = 0; i < topicSel.options.length; i++) {
-          if (topicSel.options[i].value.toLowerCase() === paramTopic.toLowerCase()) {
-            topicSel.value = topicSel.options[i].value;
-            topicSel.dispatchEvent(new Event('change'));
-            break;
+        if (selectedMode === 'writing' && subjectSel.value === 'Chinese') {
+          topicCustom.value = paramTopic;
+          topicCustom.dispatchEvent(new Event('input'));
+        } else {
+          for (let i = 0; i < topicSel.options.length; i++) {
+            if (topicSel.options[i].value.toLowerCase() === paramTopic.toLowerCase()) {
+              topicSel.value = topicSel.options[i].value;
+              topicSel.dispatchEvent(new Event('change'));
+              break;
+            }
           }
         }
       }, 50);
@@ -299,13 +318,20 @@
   });
 
   function updateGenBtn() {
-    genBtn.disabled = !subjectSel.value || !topicSel.value;
+    if (selectedMode === 'writing' && subjectSel.value === 'Chinese') {
+      genBtn.disabled = !subjectSel.value || !topicCustom.value.trim();
+    } else {
+      genBtn.disabled = !subjectSel.value || !topicSel.value;
+    }
   }
 
   // ─── Generate quiz ───
   genBtn.addEventListener('click', async () => {
     const subject = subjectSel.value;
-    const topic   = topicSel.value;
+    let topic = topicSel.value;
+    if (selectedMode === 'writing' && subject === 'Chinese') {
+      topic = topicCustom.value.trim();
+    }
     if (!subject || !topic) return;
 
     genBtn.disabled = true;
