@@ -111,6 +111,13 @@ class _CompatCursor:
                         self.lastrowid = int(row[0])
                     except Exception:
                         self.lastrowid = None
+        else:
+            try:
+                raw_lastrowid = getattr(self._inner, "lastrowid", None)
+                if raw_lastrowid is not None:
+                    self.lastrowid = int(raw_lastrowid)
+            except Exception:
+                self.lastrowid = None
 
         return self
 
