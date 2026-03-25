@@ -395,6 +395,7 @@ def generate_writing_prompt(
     topic: str,
     class_level: str,
     difficulty: str,
+    is_self_typed: bool = False,
 ) -> dict[str, Any]:
     """Generate a single writing prompt appropriate for the student's level.
 
@@ -404,6 +405,20 @@ def generate_writing_prompt(
     m = re.match(r"(?:F|FORM)?\s*(\d+)", (class_level or "").strip(), re.IGNORECASE)
     if m:
         form_number = int(m.group(1))
+
+    word_target = "650字" if (subject == "Chinese" and form_number >= 4) else (
+        "300字" if subject == "Chinese" else (
+            "400 words" if form_number >= 4 else "150 words"
+        )
+    )
+
+    if is_self_typed:
+        return {
+            "prompt": topic,
+            "genre": "自訂題目" if subject == "Chinese" else "Custom Topic",
+            "word_limit": word_target,
+            "instructions": "請根據以上自訂題目撰寫文章。" if subject == "Chinese" else "Please write based on your custom topic."
+        }
 
     form_desc = hkdse.get_form_descriptor(form_number)
     subj_knowledge = hkdse.get_subject_knowledge(subject)
@@ -417,11 +432,6 @@ def generate_writing_prompt(
             sample_block += f"  - {sp}\n"
 
     lang = "Chinese" if subject == "Chinese" else "English"
-    word_target = "650字" if (subject == "Chinese" and form_number >= 4) else (
-        "300字" if subject == "Chinese" else (
-            "400 words" if form_number >= 4 else "150 words"
-        )
-    )
 
     topic_instruction = ""
     if topic:

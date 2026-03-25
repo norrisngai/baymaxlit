@@ -170,6 +170,7 @@ def register(app: Flask) -> None:
         topic = (data.get("topic") or "").strip()
         difficulty = (data.get("difficulty") or "intermediate").strip().lower()
         test_mode = (data.get("test_mode") or "standard").strip().lower()
+        write_source = (data.get("write_source") or "ai").strip().lower()
 
         if not subject or not topic:
             return jsonify({"ok": False, "error": "Subject and topic are required."}), 400
@@ -190,6 +191,7 @@ def register(app: Flask) -> None:
                 topic=topic,
                 class_level=class_level,
                 difficulty=difficulty,
+                is_self_typed=(write_source == "self")
             )
             quiz_id = web_db.create_quiz_attempt(
                 user_id=int(user["id"]),
