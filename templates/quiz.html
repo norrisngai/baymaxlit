@@ -25,6 +25,14 @@
         <div class="quiz-mode-row" id="testModeRow"></div>
       </div>
 
+      <div class="quiz-form-group" id="chineseWriteTypeGroup" style="display:none;">
+        <label class="quiz-label">Question Source</label>
+        <div class="quiz-mode-row">
+          <button type="button" class="quiz-mode-btn active" id="writeTypeAi">AI Generated Question</button>
+          <button type="button" class="quiz-mode-btn" id="writeTypeSelf">Self Typed Question</button>
+        </div>
+      </div>
+
       <div class="quiz-form-group">
         <label class="quiz-label" id="quizTopicLabel">Topic</label>
         <select id="quizTopic" class="quiz-select" disabled>
@@ -168,6 +176,10 @@
   const genText       = document.getElementById('genBtnText');
   const genSpinner    = document.getElementById('genBtnSpinner');
 
+  const chineseWriteTypeGroup = document.getElementById('chineseWriteTypeGroup');
+  const writeTypeAiBtn = document.getElementById('writeTypeAi');
+  const writeTypeSelfBtn = document.getElementById('writeTypeSelf');
+
   const setupDiv   = document.getElementById('quizSetup');
   const panelDiv   = document.getElementById('quizPanel');
   const writingDiv = document.getElementById('quizWriting');
@@ -175,7 +187,22 @@
 
   let selectedDiff = 'basic';
   let selectedMode = 'standard';
+  let writeSource = 'ai';
   let currentQuiz  = null;
+
+  writeTypeAiBtn.addEventListener('click', () => {
+    writeSource = 'ai';
+    writeTypeAiBtn.classList.add('active');
+    writeTypeSelfBtn.classList.remove('active');
+    refreshTopics();
+  });
+  
+  writeTypeSelfBtn.addEventListener('click', () => {
+    writeSource = 'self';
+    writeTypeSelfBtn.classList.add('active');
+    writeTypeAiBtn.classList.remove('active');
+    refreshTopics();
+  });
 
   // ─── Subject change → update modes + topics ───
   subjectSel.addEventListener('change', () => {
@@ -216,6 +243,15 @@
     topicSel.style.display = '';
     topicCustom.style.display = 'none';
 
+    if (selectedMode === 'writing' && subj === 'Chinese') {
+      chineseWriteTypeGroup.style.display = '';
+    } else {
+      chineseWriteTypeGroup.style.display = 'none';
+      writeSource = 'ai';
+      writeTypeAiBtn.classList.add('active');
+      writeTypeSelfBtn.classList.remove('active');
+    }
+
     if (!subj) {
       topicSel.innerHTML = '<option value="">Select a subject first</option>';
       topicSel.disabled = true;
@@ -243,9 +279,16 @@
     }
 
     // English writing still needs an explicit theme selection.
-    if (selectedMode === 'writing' && subj === 'Chinese') {
+    if (selectedMode === 'writing' && subj === 'Chinese' && writeSource === 'self') {
       topicSel.style.display = 'none';
       topicCustom.style.display = '';
+      updateGenBtn();
+      return;
+    }
+
+    if (selectedMode === 'writing' && subj === 'Chinese' && writeSource === 'ai') {
+      topicSel.innerHTML = '<option value="General Writing">General Writing</option>';
+      topicSel.disabled = false;
       updateGenBtn();
       return;
     }
@@ -318,7 +361,7 @@
   });
 
   function updateGenBtn() {
-    if (selectedMode === 'writing' && subjectSel.value === 'Chinese') {
+    if (selectedMode === 'writing' && subjectSel.value === 'Chinese' && writeSource === 'self') {
       genBtn.disabled = !subjectSel.value || !topicCustom.value.trim();
     } else {
       genBtn.disabled = !subjectSel.value || !topicSel.value;
@@ -329,7 +372,7 @@
   genBtn.addEventListener('click', async () => {
     const subject = subjectSel.value;
     let topic = topicSel.value;
-    if (selectedMode === 'writing' && subject === 'Chinese') {
+    if (selectedMode === 'writing' && subject === 'Chinese' && writeSource === 'self') {
       topic = topicCustom.value.trim();
     }
     if (!subject || !topic) return;
